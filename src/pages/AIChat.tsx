@@ -23,9 +23,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { SmartSuggestions, generatePageContextSuggestions } from '@/components/chat/SmartSuggestions';
 import { PromptRefinement, refinePrompt, usePromptRefinement } from '@/components/chat/PromptRefinement';
 import { ChatMessage, ChatMessageData } from '@/components/chat/ChatMessage';
+import { getSupabaseUrl } from '@/lib/env';
 
 interface Message extends ChatMessageData {
   conversationId?: string;
@@ -38,7 +40,7 @@ interface Conversation {
   created_at: string;
 }
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+const CHAT_URL = `${getSupabaseUrl()}/functions/v1/chat`;
 
 export const AIChat: React.FC = () => {
   const { t } = useApp();
@@ -56,6 +58,14 @@ export const AIChat: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const promptRefinement = usePromptRefinement();
+  const isMobile = useIsMobile();
+  const [showConversations, setShowConversations] = useState(false);
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to continue.';
+    if (status === 403) return 'You do not have permission to perform this action.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
 
   // Track last visited path (before coming to AI Chat)
   useEffect(() => {
@@ -236,8 +246,12 @@ export const AIChat: React.FC = () => {
       });
 
       if (!resp.ok) {
-        const errorData = await resp.json();
-        throw new Error(errorData.error || 'Failed to get response');
+        const errorData = await resp.json().catch(() => ({}));
+        const fallbackMessage = errorData.error || 'Failed to get response';
+        toast.error(getFunctionErrorMessage(resp.status, fallbackMessage));
+        setIsLoading(false);
+        setIsTyping(false);
+        return;
       }
 
       if (!resp.body) throw new Error('No response body');
@@ -340,46 +354,56 @@ export const AIChat: React.FC = () => {
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex gap-6">
-      {/* Sidebar */}
-      <Card className="w-72 flex flex-col">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Conversations</CardTitle>
-            <Button size="sm" variant="ghost" onClick={handleNewChat}>
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="flex-1 overflow-hidden p-0">
-          <ScrollArea className="flex-1 h-full">
-            <div className="p-2 space-y-1">
-              {conversations?.map(conv => (
-                <button
-                  key={conv.id}
-                  onClick={() => setSelectedConversation(conv.id)}
-                  className={cn(
-                    "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors",
-                    selectedConversation === conv.id
-                      ? "bg-primary text-primary-foreground"
-                      : "hover:bg-muted"
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">{conv.title}</span>
-                  </div>
-                </button>
-              ))}
-              {(!conversations || conversations.length === 0) && (
-                <p className="text-center text-muted-foreground text-sm py-4">
-                  No conversations yet
-                </p>
-              )}
+    <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-4 md:gap-6">
+      {/* Mobile toggle */}
+      {isMobile && (
+        <Button variant="outline" size="sm" className="self-start gap-2" onClick={() => setShowConversations(!showConversations)}>
+          <MessageSquare className="h-4 w-4" />
+          {showConversations ? 'Hide' : 'Show'} Conversations
+        </Button>
+      )}
+
+      {/* Sidebar - hidden on mobile unless toggled */}
+      {(!isMobile || showConversations) && (
+        <Card className={`${isMobile ? 'max-h-48' : 'w-72'} flex flex-col`}>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Conversations</CardTitle>
+              <Button size="sm" variant="ghost" onClick={handleNewChat}>
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
-          </ScrollArea>
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent className="flex-1 overflow-hidden p-0">
+            <ScrollArea className="flex-1 h-full">
+              <div className="p-2 space-y-1">
+                {conversations?.map(conv => (
+                  <button
+                    key={conv.id}
+                    onClick={() => { setSelectedConversation(conv.id); if (isMobile) setShowConversations(false); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-lg text-sm transition-colors",
+                      selectedConversation === conv.id
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{conv.title}</span>
+                    </div>
+                  </button>
+                ))}
+                {(!conversations || conversations.length === 0) && (
+                  <p className="text-center text-muted-foreground text-sm py-4">
+                    No conversations yet
+                  </p>
+                )}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Chat Area */}
       <Card className="flex-1 flex flex-col">

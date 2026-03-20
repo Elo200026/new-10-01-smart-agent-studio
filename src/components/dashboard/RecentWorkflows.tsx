@@ -13,21 +13,36 @@ import {
   Loader2,
   ArrowRight
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
-const statusConfig: Record<string, { icon: any; color: string; bgColor: string }> = {
+const statusConfig: Record<string, { icon: LucideIcon; color: string; bgColor: string }> = {
   pending: { icon: Clock, color: 'text-muted-foreground', bgColor: 'bg-muted' },
   running: { icon: Loader2, color: 'text-blue-500', bgColor: 'bg-blue-500/10' },
   completed: { icon: CheckCircle, color: 'text-emerald-500', bgColor: 'bg-emerald-500/10' },
   failed: { icon: XCircle, color: 'text-destructive', bgColor: 'bg-destructive/10' },
 };
 
+interface WorkflowRunRecord {
+  id: string;
+  status: string;
+  created_at: string;
+  workflow_id?: string | null;
+  multi_agent_configs?: { name?: string | null } | null;
+}
+
 export const RecentWorkflows: React.FC = () => {
   const { currentWorkspace } = useWorkspace();
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to run workflows.';
+    if (status === 403) return 'You do not have permission to run this workflow.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
 
-  const { data: workflows, isLoading } = useQuery({
+  const { data: workflows, isLoading } = useQuery<WorkflowRunRecord[]>({
     queryKey: ['recent-workflows', currentWorkspace?.id],
     queryFn: async () => {
       if (!currentWorkspace) return [];
@@ -54,7 +69,14 @@ export const RecentWorkflows: React.FC = () => {
 
   const handleRunWorkflow = async (workflowId: string) => {
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error('Please sign in to run workflows');
+        return;
+      }
+
       const response = await supabase.functions.invoke('run-workflow', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { 
           workflowId,
           workspaceId: currentWorkspace?.id,
@@ -62,12 +84,16 @@ export const RecentWorkflows: React.FC = () => {
         },
       });
 
-      if (response.error) throw response.error;
+      if (response.error) {
+        const fallbackMessage = response.error.message || 'Failed to start workflow';
+        const status = response.error.status ?? 0;
+        throw new Error(getFunctionErrorMessage(status, fallbackMessage));
+      }
       
       toast.success('Workflow started successfully');
     } catch (error) {
       console.error('Failed to run workflow:', error);
-      toast.error('Failed to start workflow');
+      toast.error(error instanceof Error ? error.message : 'Failed to start workflow');
     }
   };
 
@@ -94,7 +120,7 @@ export const RecentWorkflows: React.FC = () => {
             {workflows.map((run) => {
               const config = statusConfig[run.status] || statusConfig.pending;
               const StatusIcon = config.icon;
-              const workflowName = (run.multi_agent_configs as any)?.name || 'Unknown Workflow';
+              const workflowName = run.multi_agent_configs?.name || 'Unknown Workflow';
 
               return (
                 <div

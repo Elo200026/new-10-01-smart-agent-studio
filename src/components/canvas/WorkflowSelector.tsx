@@ -25,6 +25,16 @@ interface WorkflowSelectorProps {
   onCreateNew: () => void;
 }
 
+interface WorkflowRecord {
+  id: string;
+  name: string;
+  description?: string | null;
+  updated_at: string;
+  canvas_data?: unknown;
+  agent_nodes?: unknown;
+  connections?: unknown;
+}
+
 export const WorkflowSelector: React.FC<WorkflowSelectorProps> = ({ onCreateNew }) => {
   const navigate = useNavigate();
   const { currentWorkspace } = useWorkspace();
@@ -50,7 +60,7 @@ export const WorkflowSelector: React.FC<WorkflowSelectorProps> = ({ onCreateNew 
     navigate(`/multi-agent-canvas/${workflowId}`);
   };
 
-  const handleCopy = async (workflow: any) => {
+  const handleCopy = async (workflow: WorkflowRecord) => {
     if (!currentWorkspace) return;
 
     const { data: user } = await supabase.auth.getUser();
@@ -66,7 +76,7 @@ export const WorkflowSelector: React.FC<WorkflowSelectorProps> = ({ onCreateNew 
         agent_nodes: workflow.agent_nodes,
         connections: workflow.connections,
         created_by: user.user.id,
-      })
+      } as never)
       .select()
       .single();
 
@@ -116,7 +126,7 @@ export const WorkflowSelector: React.FC<WorkflowSelectorProps> = ({ onCreateNew 
     navigate(`/multi-agent-canvas/${workflowId}`);
   };
 
-  const getAgentCount = (workflow: any) => {
+  const getAgentCount = (workflow: WorkflowRecord) => {
     const agentNodes = workflow.agent_nodes;
     if (Array.isArray(agentNodes)) {
       return agentNodes.length;

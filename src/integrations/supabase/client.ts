@@ -2,16 +2,17 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Lovable Cloud injects these at build time
+const SUPABASE_URL = "https://mypfeihhophbtulgbonp.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15cGZlaWhob3BoYnR1bGdib25wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwMTgxNDIsImV4cCI6MjA4MzU5NDE0Mn0.fwUsg_bYwOI7lpsbPRBurO8GUKRWdNr3JDBK6wPUVR8";
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
-    storage: localStorage,
+    storage: typeof window !== 'undefined' ? localStorage : undefined,
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
 });

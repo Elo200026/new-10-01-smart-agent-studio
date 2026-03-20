@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { translations, Language } from '@/lib/translations';
 
+type TranslationType = typeof translations[Language];
+
 interface AppContextType {
   lang: Language;
   setLang: (l: Language) => void;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
-  t: typeof translations['en'];
+  t: TranslationType;
 }
 
 const AppContext = createContext<AppContextType | null>(null);

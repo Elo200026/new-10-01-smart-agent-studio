@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils';
 import { MessageFeedback } from './MessageFeedback';
 import { CitationDisplay, Citation } from './CitationDisplay';
 import { CorrectionInterface } from './CorrectionInterface';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 export interface ChatMessageData {
   id?: string;
@@ -47,7 +49,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
               isAssistant ? 'bg-muted' : 'bg-primary text-primary-foreground'
             )}
           >
-            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            {isAssistant ? (
+              <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-pre:my-2 prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs prose-pre:bg-background/80 prose-pre:rounded-lg prose-pre:p-3 prose-a:text-primary prose-table:text-sm">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {message.content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            )}
             {message.isStreaming && (
               <span className="inline-block w-2 h-4 ml-1 bg-primary animate-pulse rounded-sm" />
             )}

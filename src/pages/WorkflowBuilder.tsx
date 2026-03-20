@@ -9,11 +9,12 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { WorkflowPreviewDiagram } from '@/components/workflow/WorkflowPreviewDiagram';
-import { 
-  Send, 
-  Bot, 
-  User, 
-  Loader2, 
+import { getSupabaseUrl } from '@/lib/env';
+import {
+  Send,
+  Bot,
+  User,
+  Loader2,
   Sparkles,
   Workflow,
   ArrowRight,
@@ -92,6 +93,13 @@ export const WorkflowBuilder: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
+
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to use the workflow builder.';
+    if (status === 403) return 'You do not have permission to access this resource.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
   const [generatedWorkflow, setGeneratedWorkflow] = useState<WorkflowResult | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -141,7 +149,7 @@ export const WorkflowBuilder: React.FC = () => {
       }
 
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/workflow-builder`,
+        `${getSupabaseUrl()}/functions/v1/workflow-builder`,
         {
           method: 'POST',
           headers: {
@@ -159,7 +167,7 @@ export const WorkflowBuilder: React.FC = () => {
         if (response.status === 402) {
           throw new Error('Usage limit reached. Please add credits.');
         }
-        throw new Error('Failed to get response');
+        throw new Error(getFunctionErrorMessage(response.status, 'Failed to get response'));
       }
 
       const reader = response.body?.getReader();
@@ -176,7 +184,7 @@ export const WorkflowBuilder: React.FC = () => {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        
+
         let newlineIndex: number;
         while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
           let line = buffer.slice(0, newlineIndex);
@@ -241,7 +249,7 @@ export const WorkflowBuilder: React.FC = () => {
           creativity_level: 'low',
           hallucination_tolerance: 'very_low',
         };
-        
+
         const responseRules = agent.response_rules || {
           step_by_step: true,
           cite_if_possible: true,
@@ -269,19 +277,42 @@ export const WorkflowBuilder: React.FC = () => {
         createdAgentIds.push(agentData.id);
       }
 
+      // Create agent mapping for I/O configuration
+      const getActualAgentId = (indexStr: string) => {
+        const match = indexStr.match(/agent_index_(\d+)/);
+        if (match) {
+          const idx = parseInt(match[1]);
+          return createdAgentIds[idx] || null;
+        }
+        return null;
+      };
+
       // Create canvas nodes
       const nodeSpacing = 250;
       const startY = 200;
-      const agentNodes = generatedWorkflow.workflow.agents.map((agent, index) => ({
-        id: `agent-${index}`,
-        type: 'agent',
-        position: { x: 100 + (index * nodeSpacing), y: startY },
-        data: {
-          label: agent.display_name,
-          agentId: createdAgentIds[index],
-          model: agent.core_model,
-        },
-      }));
+      const agentNodes = generatedWorkflow.workflow.agents.map((agent, index) => {
+        const fromAgents = (agent.input_config?.accepts_from_agents || [])
+          .map(getActualAgentId)
+          .filter((id): id is string => id !== null);
+
+        const toAgents = (agent.output_config?.passes_to_agents || [])
+          .map(getActualAgentId)
+          .filter((id): id is string => id !== null);
+
+        return {
+          id: `agent-${index}`,
+          type: 'agent',
+          position: { x: 100 + (index * nodeSpacing), y: startY },
+          data: {
+            label: agent.display_name,
+            agentId: createdAgentIds[index],
+            model: agent.core_model,
+            role: agent.role_description,
+            inputs: { fromKnowledgeBase: [], fromAgents },
+            outputs: { toKnowledgeBase: agent.output_config?.saves_to_knowledge_base || false, toAgents },
+          },
+        };
+      });
 
       // Add start and end nodes
       const nodes = [
@@ -311,10 +342,10 @@ export const WorkflowBuilder: React.FC = () => {
           target: `agent-${conn.to}`,
         })),
         // Last agent to end
-        { 
-          id: 'e-last-end', 
-          source: `agent-${agentNodes.length - 1}`, 
-          target: 'end' 
+        {
+          id: 'e-last-end',
+          source: `agent-${agentNodes.length - 1}`,
+          target: 'end'
         },
       ];
 
@@ -325,7 +356,7 @@ export const WorkflowBuilder: React.FC = () => {
         timeout_seconds: 300,
       };
 
-      // Build enhanced agent nodes with input/output config
+      // Build enhanced agent nodes with full metadata for logic execution
       const enhancedAgentNodes = agentNodes.map((node, index) => {
         const agent = generatedWorkflow.workflow.agents[index];
         return {
@@ -333,6 +364,8 @@ export const WorkflowBuilder: React.FC = () => {
           agentId: createdAgentIds[index],
           model: agent.core_model,
           label: agent.display_name,
+          inputs: node.data.inputs,
+          outputs: node.data.outputs,
           inputConfig: agent.input_config || { accepts_user_input: index === 0, accepts_from_agents: [] },
           outputConfig: agent.output_config || { output_format: 'freeform', passes_to_agents: [], saves_to_knowledge_base: false },
         };
@@ -419,26 +452,26 @@ export const WorkflowBuilder: React.FC = () => {
                 <Workflow className="h-12 w-12 mx-auto text-primary" />
                 <h2 className="text-lg font-medium">Welcome to the AI Workflow Builder</h2>
                 <p className="text-muted-foreground">
-                  Describe your multi-agent workflow idea and I'll help you design and deploy it. 
+                  Describe your multi-agent workflow idea and I'll help you design and deploy it.
                   For example:
                 </p>
                 <div className="grid gap-2 text-sm text-left max-w-md mx-auto">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="justify-start h-auto py-2 px-3"
                     onClick={() => streamChat("I want to create a content creation pipeline with a researcher, writer, and editor agent")}
                   >
                     "Create a content pipeline with researcher, writer, and editor agents"
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="justify-start h-auto py-2 px-3"
                     onClick={() => streamChat("Build a customer support workflow that analyzes queries, drafts responses, and reviews them")}
                   >
                     "Build a customer support workflow with query analysis and response drafting"
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="justify-start h-auto py-2 px-3"
                     onClick={() => streamChat("I need a data analysis workflow that collects data, analyzes patterns, and generates reports")}
                   >
@@ -460,11 +493,10 @@ export const WorkflowBuilder: React.FC = () => {
                 </div>
               )}
               <Card
-                className={`p-4 max-w-[80%] ${
-                  message.role === 'user'
+                className={`p-4 max-w-[80%] ${message.role === 'user'
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-card'
-                }`}
+                  }`}
               >
                 <p className="whitespace-pre-wrap text-sm">
                   {getCleanContent(message.content) || (isLoading && index === messages.length - 1 ? '...' : '')}
@@ -535,13 +567,13 @@ export const WorkflowBuilder: React.FC = () => {
                         <p><strong>Name:</strong> {generatedWorkflow.workflow.name}</p>
                         <p><strong>Description:</strong> {generatedWorkflow.workflow.description}</p>
                       </div>
-                      
+
                       {/* Agent Details */}
                       <div className="space-y-2">
                         <p className="text-sm font-medium">Agents ({generatedWorkflow.workflow.agents.length}):</p>
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
                           {generatedWorkflow.workflow.agents.map((agent, index) => (
-                            <div 
+                            <div
                               key={index}
                               className="p-3 rounded-lg bg-background border border-border"
                             >
@@ -578,8 +610,8 @@ export const WorkflowBuilder: React.FC = () => {
                   </TabsContent>
                 </Tabs>
 
-                <Button 
-                  onClick={deployWorkflow} 
+                <Button
+                  onClick={deployWorkflow}
                   disabled={isDeploying}
                   className="w-full"
                   size="lg"
@@ -615,8 +647,8 @@ export const WorkflowBuilder: React.FC = () => {
             className="min-h-[60px] resize-none"
             disabled={isLoading}
           />
-          <Button 
-            onClick={() => streamChat(input)} 
+          <Button
+            onClick={() => streamChat(input)}
             disabled={isLoading || !input.trim()}
             size="icon"
             className="h-[60px] w-[60px]"

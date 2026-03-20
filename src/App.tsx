@@ -2,7 +2,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { AppProvider } from "@/contexts/AppContext";
 import { WorkspaceProvider } from "@/contexts/WorkspaceContext";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -31,6 +32,35 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+// Page transition variants
+const pageVariants = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -8 }
+};
+
+const pageTransition = {
+  type: "tween" as const,
+  ease: [0.25, 0.1, 0.25, 1] as const,
+  duration: 0.3
+};
+
+// Animated page wrapper
+function AnimatedPage({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      variants={pageVariants}
+      transition={pageTransition}
+      className="w-full h-full"
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
 
@@ -49,6 +79,55 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// Animated routes wrapper
+function AnimatedRoutes() {
+  const location = useLocation();
+  
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/" element={<AnimatedPage><Index /></AnimatedPage>} />
+        <Route path="/auth" element={<AnimatedPage><Auth /></AnimatedPage>} />
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <WorkspaceProvider>
+                <MainLayout>
+                  <AnimatePresence mode="wait">
+                    <Routes location={location} key={location.pathname}>
+                      <Route path="/dashboard" element={<AnimatedPage><Dashboard /></AnimatedPage>} />
+                      <Route path="/agents" element={<AnimatedPage><Agents /></AnimatedPage>} />
+                      <Route path="/agents/:id" element={<AnimatedPage><AgentConfiguration /></AnimatedPage>} />
+                      <Route path="/agent-test" element={<AnimatedPage><AgentTestChat /></AnimatedPage>} />
+                      <Route path="/multi-agent-canvas" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
+                      <Route path="/multi-agent-canvas/:id" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
+                      <Route path="/workflow-builder" element={<AnimatedPage><WorkflowBuilder /></AnimatedPage>} />
+                      <Route path="/knowledge-base" element={<AnimatedPage><KnowledgeBase /></AnimatedPage>} />
+                      <Route path="/analytics" element={<AnimatedPage><Analytics /></AnimatedPage>} />
+                      <Route path="/settings" element={<AnimatedPage><Settings /></AnimatedPage>} />
+                      <Route path="/ai-chat" element={<AnimatedPage><AIChat /></AnimatedPage>} />
+                      <Route path="/workflow-runs" element={<AnimatedPage><WorkflowRuns /></AnimatedPage>} />
+                      <Route path="/workflow-monitor/:runId" element={<AnimatedPage><WorkflowMonitor /></AnimatedPage>} />
+                      <Route path="/marketplace" element={<AnimatedPage><Marketplace /></AnimatedPage>} />
+                      <Route path="/team" element={<AnimatedPage><Team /></AnimatedPage>} />
+                      <Route path="/privacy" element={<AnimatedPage><PrivacyPolicy /></AnimatedPage>} />
+                      <Route path="/terms" element={<AnimatedPage><TermsOfService /></AnimatedPage>} />
+                      <Route path="/help" element={<AnimatedPage><Help /></AnimatedPage>} />
+                      <Route path="*" element={<AnimatedPage><NotFound /></AnimatedPage>} />
+                    </Routes>
+                  </AnimatePresence>
+                </MainLayout>
+                <AIAssistant />
+              </WorkspaceProvider>
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+    </AnimatePresence>
+  );
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AppProvider>
@@ -56,43 +135,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/auth" element={<Auth />} />
-            <Route
-              path="/*"
-              element={
-                <ProtectedRoute>
-                  <WorkspaceProvider>
-                    <MainLayout>
-                      <Routes>
-                        <Route path="/dashboard" element={<Dashboard />} />
-                        <Route path="/agents" element={<Agents />} />
-                        <Route path="/agents/:id" element={<AgentConfiguration />} />
-                        <Route path="/agent-test" element={<AgentTestChat />} />
-                        <Route path="/multi-agent-canvas" element={<MultiAgentCanvas />} />
-                        <Route path="/multi-agent-canvas/:id" element={<MultiAgentCanvas />} />
-                        <Route path="/workflow-builder" element={<WorkflowBuilder />} />
-                        <Route path="/knowledge-base" element={<KnowledgeBase />} />
-                        <Route path="/analytics" element={<Analytics />} />
-                        <Route path="/settings" element={<Settings />} />
-                        <Route path="/ai-chat" element={<AIChat />} />
-                        <Route path="/workflow-runs" element={<WorkflowRuns />} />
-                        <Route path="/workflow-monitor/:runId" element={<WorkflowMonitor />} />
-                        <Route path="/marketplace" element={<Marketplace />} />
-                        <Route path="/team" element={<Team />} />
-                        <Route path="/privacy" element={<PrivacyPolicy />} />
-                        <Route path="/terms" element={<TermsOfService />} />
-                        <Route path="/help" element={<Help />} />
-                        <Route path="*" element={<NotFound />} />
-                      </Routes>
-                    </MainLayout>
-                    <AIAssistant />
-                  </WorkspaceProvider>
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
+          <AnimatedRoutes />
         </BrowserRouter>
       </TooltipProvider>
     </AppProvider>

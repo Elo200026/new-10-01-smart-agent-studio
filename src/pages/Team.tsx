@@ -69,6 +69,8 @@ export const Team: React.FC = () => {
   
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'editor' | 'viewer'>('viewer');
+  const isInviteRole = (value: string): value is 'admin' | 'editor' | 'viewer' =>
+    value === 'admin' || value === 'editor' || value === 'viewer';
   const [isInviteOpen, setIsInviteOpen] = useState(false);
 
   // Fetch team members
@@ -77,7 +79,7 @@ export const Team: React.FC = () => {
     queryFn: async () => {
       if (!currentWorkspace) return [];
       const { data, error } = await supabase
-        .from('team_members')
+        .from('workspace_members_public')
         .select('*')
         .eq('workspace_id', currentWorkspace.id)
         .order('invited_at', { ascending: false });
@@ -183,7 +185,12 @@ export const Team: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Role</label>
-                <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as any)}>
+                <Select
+                  value={inviteRole}
+                  onValueChange={(value) => {
+                    if (isInviteRole(value)) setInviteRole(value);
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>

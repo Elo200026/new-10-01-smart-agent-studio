@@ -103,10 +103,18 @@ export const PublishToMarketplaceDialog: React.FC<PublishToMarketplaceDialogProp
       return;
     }
 
-    setPublishing(true);
-    const { data: user } = await supabase.auth.getUser();
+  setPublishing(true);
+  const { data: user } = await supabase.auth.getUser();
 
-    try {
+  try {
+      if (!user.user) {
+        toast({
+          title: 'Not Signed In',
+          description: 'Please sign in to publish to the marketplace',
+          variant: 'destructive',
+        });
+        return;
+      }
       const { error } = await supabase.from('marketplace_items').insert({
         name: name.trim(),
         description: description.trim() || null,
@@ -116,7 +124,7 @@ export const PublishToMarketplaceDialog: React.FC<PublishToMarketplaceDialogProp
         agent_count: agentCount,
         tags: tags.length > 0 ? tags : null,
         category: category || null,
-        publisher_id: user.user?.id!,
+        publisher_id: user.user.id,
         publisher_workspace_id: currentWorkspace.id,
         source_config_id: sourceConfigId || null,
         is_public: true,

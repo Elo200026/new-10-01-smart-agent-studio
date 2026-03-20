@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -8,21 +8,33 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Bot, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 export const Auth: React.FC = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, authLoading, navigate]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
     });
 
     setLoading(false);
@@ -33,10 +45,14 @@ export const Auth: React.FC = () => {
         description: error.message,
         variant: 'destructive',
       });
+    } else if (data.session) {
+      // Auto-confirmed: user is logged in immediately
+      toast({ title: 'Welcome!', description: 'Account created successfully.' });
+      navigate('/dashboard');
     } else {
       toast({
-        title: 'Account Created',
-        description: 'You can now sign in with your credentials.',
+        title: 'Check your email',
+        description: 'We sent you a confirmation link. Please verify your email to sign in.',
       });
     }
   };

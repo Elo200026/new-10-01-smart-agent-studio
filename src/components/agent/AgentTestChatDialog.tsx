@@ -47,7 +47,7 @@ interface AgentTestChatDialogProps {
     intro_sentence: string;
     core_model: string;
     allowed_folders: string[];
-    rag_policy: any;
+    rag_policy: Record<string, unknown>;
     response_rules: ResponseRules;
   };
   reworkSettings: ReworkSettings;
@@ -89,6 +89,16 @@ export const AgentTestChatDialog: React.FC<AgentTestChatDialogProps> = ({
     );
   }, [formData.response_rules]);
 
+  const isAbortError = (err: unknown): err is { name: string } => {
+    return typeof err === 'object' && err !== null && 'name' in err && typeof err.name === 'string';
+  };
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to test the agent.';
+    if (status === 403) return 'You do not have permission to test this agent.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
+
   const handleSend = async (promptOverride?: string) => {
     const messageContent = promptOverride || input.trim();
     if (!messageContent) return;
@@ -115,10 +125,15 @@ export const AgentTestChatDialog: React.FC<AgentTestChatDialogProps> = ({
 
       let response = '';
       let reworkAttempts = 0;
-      let finalValidation: ValidationScore | undefined;
 
       // Initial request
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Please sign in to test the agent');
+      }
+
       const { data, error } = await supabase.functions.invoke('rag-chat', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: {
           messages: apiMessages,
           agentConfig: {
@@ -138,7 +153,11 @@ export const AgentTestChatDialog: React.FC<AgentTestChatDialogProps> = ({
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        const fallbackMessage = error.message || 'Failed to get response';
+        const status = error.status ?? 0;
+        throw new Error(getFunctionErrorMessage(status, fallbackMessage));
+      }
       
       response = data?.response || 'No response generated';
       
@@ -167,6 +186,7 @@ export const AgentTestChatDialog: React.FC<AgentTestChatDialogProps> = ({
           );
 
           const { data: reworkData, error: reworkError } = await supabase.functions.invoke('rag-chat', {
+            headers: { Authorization: `Bearer ${session.access_token}` },
             body: {
               messages: [
                 ...apiMessages,
@@ -187,7 +207,11 @@ export const AgentTestChatDialog: React.FC<AgentTestChatDialogProps> = ({
             }
           });
 
-          if (reworkError) break;
+          if (reworkError) {
+            const fallbackMessage = reworkError.message || 'Failed to rework response';
+            const status = reworkError.status ?? 0;
+            throw new Error(getFunctionErrorMessage(status, fallbackMessage));
+          }
 
           response = reworkData?.response || response;
           validation = validateResponse(
@@ -198,7 +222,7 @@ export const AgentTestChatDialog: React.FC<AgentTestChatDialogProps> = ({
         }
       }
 
-      finalValidation = validation;
+      const finalValidation = validation;
 
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
@@ -210,11 +234,11 @@ export const AgentTestChatDialog: React.FC<AgentTestChatDialogProps> = ({
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
+    } catch (error: unknown) {
+      if (!isAbortError(error) || error.name !== 'AbortError') {
         toast({
           title: 'Error',
-          description: error.message || 'Failed to get response',
+          description: error instanceof Error ? error.message : 'Failed to get response',
           variant: 'destructive'
         });
       }

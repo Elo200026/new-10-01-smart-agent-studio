@@ -2,11 +2,14 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Bot, Settings2, Trash2, Brain, FileText, Sparkles, Zap } from 'lucide-react';
+import { Plus, Bot, Settings2, Trash2, Brain, FileText, Sparkles, Zap, Rocket } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { useAuth } from '@/hooks/useAuth';
+import { agentTemplates } from '@/lib/agentTemplates';
 
 type CoreModel = 'core_analyst' | 'core_reviewer' | 'core_synthesizer';
 
@@ -14,6 +17,33 @@ export const Agents: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { currentWorkspace } = useWorkspace();
+  const { user } = useAuth();
+
+  const handleDeployTemplate = async (template: typeof agentTemplates[0]) => {
+    if (!currentWorkspace || !user) {
+      toast({ title: 'Error', description: 'Please select a workspace first', variant: 'destructive' });
+      return;
+    }
+    const { error } = await supabase.from('ai_profiles').insert({
+      display_name: template.display_name,
+      user_defined_name: template.user_defined_name,
+      core_model: template.core_model,
+      persona: template.persona,
+      role_description: template.role_description,
+      intro_sentence: template.intro_sentence,
+      response_rules: template.response_rules as any,
+      rag_policy: template.rag_policy as any,
+      workspace_id: currentWorkspace.id,
+      created_by: user.id,
+    } as any);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      toast({ title: 'Deployed!', description: `${template.name} agent created successfully` });
+    }
+  };
 
   const { data: agents, isLoading } = useQuery({
     queryKey: ['agents'],
@@ -68,49 +98,32 @@ export const Agents: React.FC = () => {
         </Button>
       </div>
 
-      {/* Agent Hubs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="cyber-border bg-gradient-to-br from-blue-500/10 to-blue-600/5 hover:from-blue-500/15 hover:to-blue-600/10 transition-all cursor-pointer">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-lg bg-blue-500/20">
-                <Brain className="h-6 w-6 text-blue-400" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-lg">ANALYST HUB</h3>
-                <p className="text-sm text-muted-foreground">Data Analysis Agents</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="cyber-border bg-gradient-to-br from-green-500/10 to-green-600/5 hover:from-green-500/15 hover:to-green-600/10 transition-all cursor-pointer">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-lg bg-green-500/20">
-                <FileText className="h-6 w-6 text-green-400" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-lg">REVIEW LAB</h3>
-                <p className="text-sm text-muted-foreground">Document Review Agents</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="cyber-border bg-gradient-to-br from-purple-500/10 to-purple-600/5 hover:from-purple-500/15 hover:to-purple-600/10 transition-all cursor-pointer">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-3 rounded-lg bg-purple-500/20">
-                <Sparkles className="h-6 w-6 text-purple-400" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-lg">SYNTHESIS SUITE</h3>
-                <p className="text-sm text-muted-foreground">Content Synthesis Agents</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Quick Deploy Templates */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <Rocket className="h-5 w-5 text-primary" />
+          Quick Deploy Templates
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {agentTemplates.map((template) => (
+            <Card 
+              key={template.id}
+              className={`group cursor-pointer border-border/50 hover:border-primary/30 transition-all bg-gradient-to-br ${template.color}`}
+              onClick={() => handleDeployTemplate(template)}
+            >
+              <CardContent className="pt-6 pb-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-2xl">{template.icon}</span>
+                  <h3 className="font-semibold">{template.name}</h3>
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">{template.role_description}</p>
+                <Button variant="ghost" size="sm" className="mt-3 w-full gap-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Plus className="h-3 w-3" /> Deploy Now
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
 
       {/* Agents List */}

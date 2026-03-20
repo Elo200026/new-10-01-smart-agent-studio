@@ -126,6 +126,12 @@ export const AIAssistant: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to use the assistant.';
+    if (status === 403) return 'You do not have permission to use this assistant.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
 
   const currentContext = contextualHints[location.pathname] || contextualHints['/'];
 
@@ -149,6 +155,20 @@ export const AIAssistant: React.FC = () => {
     setIsLoading(true);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: 'Please sign in to use the assistant.',
+            timestamp: new Date(),
+          },
+        ]);
+        setIsLoading(false);
+        return;
+      }
+
       const systemContext = `You are an AI assistant helping users navigate and use the AI Agent Builder platform. 
 The user is currently on the ${currentContext.page} page.
 Available features on this page: ${currentContext.hints.join(', ')}.
@@ -157,6 +177,7 @@ If the user asks about features, explain how to use them step by step.
 Keep responses under 150 words unless more detail is needed.`;
 
       const response = await supabase.functions.invoke('chat', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: {
           messages: [
             { role: 'system', content: systemContext },
@@ -166,7 +187,11 @@ Keep responses under 150 words unless more detail is needed.`;
         },
       });
 
-      if (response.error) throw response.error;
+      if (response.error) {
+        const fallbackMessage = response.error.message || 'Failed to reach assistant service.';
+        const status = response.error.status ?? 0;
+        throw new Error(getFunctionErrorMessage(status, fallbackMessage));
+      }
 
       // Handle streaming response
       const reader = response.data?.getReader?.();

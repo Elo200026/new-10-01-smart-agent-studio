@@ -106,10 +106,10 @@ export const WorkflowScheduleDialog: React.FC<WorkflowScheduleDialogProps> = ({
       
       onSuccess?.();
       onOpenChange(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: 'Error',
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Failed to create schedule',
         variant: 'destructive',
       });
     } finally {

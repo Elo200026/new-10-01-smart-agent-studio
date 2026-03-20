@@ -34,11 +34,13 @@ interface MarketplaceItem {
   agent_count: number | null;
   tags: string[] | null;
   category: string | null;
-  publisher_id: string;
+  publisher_id?: string; // Optional - not included in public view
   download_count: number | null;
   rating: number | null;
   rating_count: number | null;
   created_at: string;
+  updated_at?: string;
+  is_public?: boolean;
 }
 
 export const Marketplace: React.FC = () => {
@@ -50,27 +52,29 @@ export const Marketplace: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('all');
   const [importing, setImporting] = useState<string | null>(null);
 
-  // Fetch marketplace items
+  // Fetch marketplace items from the public view (hides publisher info)
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['marketplace-items', activeTab, selectedCategory],
     queryFn: async () => {
-      let query = supabase
-        .from('marketplace_items')
+      // Use the public view which excludes sensitive publisher data
+      const { data, error } = await supabase
+        .from('marketplace_items_public')
         .select('*')
-        .eq('is_public', true)
         .order('download_count', { ascending: false });
 
+      if (error) throw error;
+      
+      let filtered = data || [];
+      
       if (activeTab !== 'all') {
-        query = query.eq('item_type', activeTab);
+        filtered = filtered.filter(item => item.item_type === activeTab);
       }
 
       if (selectedCategory !== 'all') {
-        query = query.eq('category', selectedCategory);
+        filtered = filtered.filter(item => item.category === selectedCategory);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return data as MarketplaceItem[];
+      return filtered as MarketplaceItem[];
     },
   });
 
@@ -100,7 +104,9 @@ export const Marketplace: React.FC = () => {
   );
 
   // Get unique categories
-  const categories = [...new Set(items.map(item => item.category).filter(Boolean))];
+  const categories = [
+    ...new Set(items.map(item => item.category).filter((category): category is string => Boolean(category))),
+  ];
 
   const handleImport = async (item: MarketplaceItem) => {
     if (!currentWorkspace) {
@@ -114,6 +120,15 @@ export const Marketplace: React.FC = () => {
 
     setImporting(item.id);
     const { data: user } = await supabase.auth.getUser();
+    if (!user.user) {
+      toast({
+        title: 'Not Signed In',
+        description: 'Please sign in to import configurations',
+        variant: 'destructive',
+      });
+      setImporting(null);
+      return;
+    }
 
     try {
       if (item.item_type === 'single_agent') {
@@ -129,7 +144,7 @@ export const Marketplace: React.FC = () => {
             intro_sentence: agentConfig.intro_sentence as string || null,
             response_rules: agentConfig.response_rules as Json || null,
             rag_policy: agentConfig.rag_policy as Json || null,
-            created_by: user.user?.id || null,
+            created_by: user.user.id,
           }])
           .select()
           .single();
@@ -139,7 +154,7 @@ export const Marketplace: React.FC = () => {
         // Track import
         await supabase.from('marketplace_imports').insert({
           marketplace_item_id: item.id,
-          imported_by: user.user?.id!,
+          imported_by: user.user.id,
           workspace_id: currentWorkspace.id,
           imported_config_id: newAgent.id,
         });
@@ -161,7 +176,7 @@ export const Marketplace: React.FC = () => {
             canvas_data: item.canvas_data,
             agent_nodes: (item.config_data as Record<string, unknown>).agent_nodes as Json,
             connections: (item.config_data as Record<string, unknown>).connections as Json,
-            created_by: user.user?.id!,
+            created_by: user.user.id,
           })
           .select()
           .single();
@@ -171,7 +186,7 @@ export const Marketplace: React.FC = () => {
         // Track import
         await supabase.from('marketplace_imports').insert({
           marketplace_item_id: item.id,
-          imported_by: user.user?.id!,
+          imported_by: user.user.id,
           workspace_id: currentWorkspace.id,
           imported_config_id: newConfig.id,
         });
@@ -347,11 +362,11 @@ export const Marketplace: React.FC = () => {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
-            {categories.map((cat) => (
-              <SelectItem key={cat} value={cat!}>
-                {cat}
-              </SelectItem>
-            ))}
+                {categories.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {cat}
+                  </SelectItem>
+                ))}
           </SelectContent>
         </Select>
       </div>

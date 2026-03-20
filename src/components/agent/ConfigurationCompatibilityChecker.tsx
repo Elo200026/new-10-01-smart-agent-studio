@@ -58,7 +58,7 @@ export const ConfigurationCompatibilityChecker: React.FC<ConfigurationCompatibil
     for (const mismatch of compatibility.mismatches) {
       const ruleItem = RULE_ITEMS.find(r => r.label === mismatch.rule_name);
       if (ruleItem && mismatch.rule_enabled) {
-        (rulesToDisable as any)[ruleItem.key] = false;
+        (rulesToDisable as Record<string, boolean>)[ruleItem.key] = false;
       }
     }
     onDisableMismatchedRules(rulesToDisable);

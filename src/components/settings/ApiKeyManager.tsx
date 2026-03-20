@@ -48,6 +48,12 @@ export const ApiKeyManager: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to manage API keys.';
+    if (status === 403) return 'You do not have permission to manage API keys.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
 
   // Fetch API keys via edge function (returns masked keys only)
   const { data: apiKeys, isLoading } = useQuery({
@@ -56,13 +62,18 @@ export const ApiKeyManager: React.FC = () => {
       if (!currentWorkspace?.id) return [];
       
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
+      if (!session?.access_token) throw new Error('Not authenticated');
 
       const response = await supabase.functions.invoke('manage-api-keys', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { action: 'list', workspace_id: currentWorkspace.id }
       });
 
-      if (response.error) throw response.error;
+      if (response.error) {
+        const fallbackMessage = response.error.message || 'Failed to load API keys';
+        const status = response.error.status ?? 0;
+        throw new Error(getFunctionErrorMessage(status, fallbackMessage));
+      }
       return (response.data?.keys || []) as SecureApiKey[];
     },
     enabled: !!currentWorkspace?.id,
@@ -78,8 +89,12 @@ export const ApiKeyManager: React.FC = () => {
     }) => {
       if (!currentWorkspace?.id) throw new Error('No workspace selected');
 
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Not authenticated');
+
       const action = keyId ? 'update' : 'create';
       const response = await supabase.functions.invoke('manage-api-keys', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { 
           action,
           workspace_id: currentWorkspace.id,
@@ -90,7 +105,11 @@ export const ApiKeyManager: React.FC = () => {
         }
       });
 
-      if (response.error) throw response.error;
+      if (response.error) {
+        const fallbackMessage = response.error.message || 'Failed to save API key';
+        const status = response.error.status ?? 0;
+        throw new Error(getFunctionErrorMessage(status, fallbackMessage));
+      }
       if (response.data?.error) throw new Error(response.data.error);
       return response.data;
     },
@@ -100,7 +119,7 @@ export const ApiKeyManager: React.FC = () => {
       closeDialog();
     },
     onError: (error) => {
-      toast.error(`Failed to save: ${error.message}`);
+      toast.error(`Failed to save: ${error instanceof Error ? error.message : 'Unknown error'}`);
     },
   });
 
@@ -109,7 +128,11 @@ export const ApiKeyManager: React.FC = () => {
     mutationFn: async (keyId: string) => {
       if (!currentWorkspace?.id) throw new Error('No workspace selected');
 
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Not authenticated');
+
       const response = await supabase.functions.invoke('manage-api-keys', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: { 
           action: 'delete',
           workspace_id: currentWorkspace.id,
@@ -117,7 +140,11 @@ export const ApiKeyManager: React.FC = () => {
         }
       });
 
-      if (response.error) throw response.error;
+      if (response.error) {
+        const fallbackMessage = response.error.message || 'Failed to delete API key';
+        const status = response.error.status ?? 0;
+        throw new Error(getFunctionErrorMessage(status, fallbackMessage));
+      }
       if (response.data?.error) throw new Error(response.data.error);
     },
     onSuccess: () => {
@@ -125,7 +152,7 @@ export const ApiKeyManager: React.FC = () => {
       toast.success('API key deleted');
     },
     onError: (error) => {
-      toast.error(`Failed to delete: ${error.message}`);
+      toast.error(`Failed to delete: ${error instanceof Error ? error.message : 'Unknown error'}`);
     },
   });
 

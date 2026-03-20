@@ -13,10 +13,29 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface WorkflowImportExportProps {
   configName: string;
-  nodes: any[];
-  edges: any[];
-  onImport: (data: any) => void;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  onImport: (data: WorkflowImportData) => void;
 }
+
+interface WorkflowNode {
+  type?: string;
+  data?: Record<string, unknown>;
+}
+
+type WorkflowEdge = Record<string, unknown>;
+
+interface WorkflowImportData {
+  version?: string;
+  name?: string;
+  exportedAt?: string;
+  nodes?: WorkflowNode[];
+  edges?: WorkflowEdge[];
+  agents?: Record<string, unknown>[];
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
 
 export const WorkflowImportExport: React.FC<WorkflowImportExportProps> = ({
   configName,
@@ -27,7 +46,7 @@ export const WorkflowImportExport: React.FC<WorkflowImportExportProps> = ({
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importDialogOpen, setImportDialogOpen] = React.useState(false);
-  const [importPreview, setImportPreview] = React.useState<any>(null);
+  const [importPreview, setImportPreview] = React.useState<WorkflowImportData | null>(null);
   const [importError, setImportError] = React.useState<string | null>(null);
 
   const handleExport = () => {
@@ -76,17 +95,17 @@ export const WorkflowImportExport: React.FC<WorkflowImportExportProps> = ({
     reader.onload = (e) => {
       try {
         const content = e.target?.result as string;
-        const data = JSON.parse(content);
+        const data = JSON.parse(content) as unknown;
 
         // Validate the structure
-        if (!data.nodes || !data.edges) {
+        if (!isRecord(data) || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
           setImportError('Invalid workflow file: missing nodes or edges');
           setImportPreview(null);
           setImportDialogOpen(true);
           return;
         }
 
-        setImportPreview(data);
+        setImportPreview(data as WorkflowImportData);
         setImportError(null);
         setImportDialogOpen(true);
       } catch (error) {
@@ -113,7 +132,8 @@ export const WorkflowImportExport: React.FC<WorkflowImportExportProps> = ({
     }
   };
 
-  const agentCount = importPreview?.agents?.length || importPreview?.nodes?.filter((n: any) => n.type === 'agent').length || 0;
+  const previewNodes = importPreview?.nodes ?? [];
+  const agentCount = importPreview?.agents?.length ?? previewNodes.filter((n) => n.type === 'agent').length;
 
   return (
     <>

@@ -67,8 +67,12 @@ export const CreateFolderDialog: React.FC<CreateFolderDialogProps> = ({
       setParentId('');
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to create folder',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }

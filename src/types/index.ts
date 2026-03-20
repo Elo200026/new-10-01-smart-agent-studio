@@ -158,8 +158,44 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
-  sources?: any[];
+  sources?: Record<string, unknown>[];
 }
+
+export interface MemorySettings {
+  short_term_enabled: boolean;
+  context_window_size: number;
+  long_term_enabled: boolean;
+  retention_policy: 'keep_all' | 'keep_successful' | 'keep_30_days';
+  learn_preferences: boolean;
+}
+
+export interface AwarenessSettings {
+  awareness_level: number;
+  self_role_enabled: boolean;
+  role_boundaries: string | null;
+  state_awareness_enabled: boolean;
+  state_context_source: 'project_status' | 'workflow_status' | 'custom';
+  proactive_reasoning: boolean;
+  feedback_learning: boolean;
+}
+
+export const defaultMemorySettings: MemorySettings = {
+  short_term_enabled: true,
+  context_window_size: 10,
+  long_term_enabled: false,
+  retention_policy: 'keep_successful',
+  learn_preferences: true,
+};
+
+export const defaultAwarenessSettings: AwarenessSettings = {
+  awareness_level: 2,
+  self_role_enabled: false,
+  role_boundaries: null,
+  state_awareness_enabled: false,
+  state_context_source: 'project_status',
+  proactive_reasoning: false,
+  feedback_learning: false,
+};
 
 export type Language = 'en' | 'ar';
 

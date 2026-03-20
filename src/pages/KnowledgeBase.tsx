@@ -52,7 +52,23 @@ interface DocumentInfo {
   folder_id: string;
 }
 
-const buildFolderTree = (folders: any[], documents: any[]): FolderNode[] => {
+interface FolderRecord {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  created_by: string | null;
+  created_at: string | null;
+  folder_type: string | null;
+}
+
+interface DocumentRecord {
+  id: string;
+  source_file: string;
+  created_at: string | null;
+  folder_id: string;
+}
+
+const buildFolderTree = (folders: FolderRecord[], documents: DocumentRecord[]): FolderNode[] => {
   const map = new Map<string, FolderNode>();
   const roots: FolderNode[] = [];
 

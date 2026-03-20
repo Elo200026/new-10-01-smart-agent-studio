@@ -6,6 +6,32 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const getAIConfig = () => {
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  const groqKey = Deno.env.get("GROQ_API_KEY");
+
+  if (lovableKey) return {
+    apiUrl: "https://ai.gateway.lovable.dev/v1/chat/completions",
+    apiKey: lovableKey,
+    model: "google/gemini-2.5-flash",
+    provider: "lovable"
+  };
+  if (openaiKey) return {
+    apiUrl: "https://api.openai.com/v1/chat/completions",
+    apiKey: openaiKey,
+    model: "gpt-4o-mini",
+    provider: "openai"
+  };
+  if (groqKey) return {
+    apiUrl: "https://api.groq.com/openai/v1/chat/completions",
+    apiKey: groqKey,
+    model: "llama-3.1-70b-versatile",
+    provider: "groq"
+  };
+  return { apiUrl: null, apiKey: null, model: null, provider: null };
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -42,7 +68,7 @@ serve(async (req) => {
     console.log(`Authenticated user: ${user.id}`);
 
     const { workflowId, workspaceId, triggerType = "manual", inputData } = await req.json();
-    
+
     // Validate required field
     if (!workflowId) {
       return new Response(
@@ -104,18 +130,18 @@ serve(async (req) => {
 
     console.log(`Created workflow run: ${run.id}`);
 
-    const executionLogs: any[] = [];
-    let outputData: any = {};
+    const executionLogs: { timestamp: string; type: string; message: string; agent?: string; preview?: string }[] = [];
+    const outputData: Record<string, unknown> = {};
 
     try {
       // Parse agent nodes from workflow
       const agentNodes = workflow.agent_nodes || [];
-      
+
       // Limit agents to prevent abuse
       if (agentNodes.length > 50) {
         throw new Error("Maximum 50 agents per workflow");
       }
-      
+
       if (agentNodes.length === 0) {
         executionLogs.push({
           timestamp: new Date().toISOString(),
@@ -128,7 +154,7 @@ serve(async (req) => {
       for (const node of agentNodes) {
         const agentId = node.agentId;
         const agentName = node.label || "Unknown Agent";
-        
+
         executionLogs.push({
           timestamp: new Date().toISOString(),
           type: "start",
@@ -168,7 +194,7 @@ serve(async (req) => {
         const now = new Date();
         const currentDay = now.getUTCDay();
         const activeDays = agent.active_days || [0, 1, 2, 3, 4, 5, 6];
-        
+
         if (!activeDays.includes(currentDay)) {
           executionLogs.push({
             timestamp: new Date().toISOString(),
@@ -182,7 +208,7 @@ serve(async (req) => {
         // Check agent lifecycle - active time range
         if (agent.active_from || agent.active_until) {
           const currentTime = now.toISOString().slice(11, 19); // HH:MM:SS
-          
+
           if (agent.active_from && currentTime < agent.active_from) {
             executionLogs.push({
               timestamp: new Date().toISOString(),
@@ -192,7 +218,7 @@ serve(async (req) => {
             });
             continue;
           }
-          
+
           if (agent.active_until && currentTime > agent.active_until) {
             executionLogs.push({
               timestamp: new Date().toISOString(),
@@ -205,12 +231,13 @@ serve(async (req) => {
         }
 
         // Call AI to execute agent task
-        if (!LOVABLE_API_KEY) {
+        const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+        if (!apiKey) {
           executionLogs.push({
             timestamp: new Date().toISOString(),
             type: "error",
             agent: agentName,
-            message: "LOVABLE_API_KEY not configured - cannot execute agent",
+            message: "No AI provider configured - cannot execute agent",
           });
           continue;
         }
@@ -218,20 +245,20 @@ serve(async (req) => {
         // Sanitize and limit input prompt
         const rawPrompt = inputData?.prompt || `Execute your role as ${agentName}. ${agent.role_description || ''}`;
         const prompt = String(rawPrompt).substring(0, 10000); // Limit prompt size
-        
+
         let systemPrompt = agent.persona || "You are a helpful assistant.";
         if (agent.role_description) {
           systemPrompt += `\n\nRole: ${agent.role_description}`;
         }
 
-        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const response = await fetch(apiUrl!, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
+            model: aiModel,
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: prompt },
@@ -242,7 +269,7 @@ serve(async (req) => {
         if (response.ok) {
           const result = await response.json();
           const content = result.choices?.[0]?.message?.content || "";
-          
+
           outputData[agentId] = {
             agent: agentName,
             response: content,
@@ -264,7 +291,7 @@ serve(async (req) => {
             message: `AI request failed: ${response.status}`,
           });
         }
-        
+
         // Limit execution logs size
         if (executionLogs.length > 1000) {
           executionLogs.splice(0, executionLogs.length - 1000);

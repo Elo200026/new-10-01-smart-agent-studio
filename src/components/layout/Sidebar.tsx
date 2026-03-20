@@ -26,6 +26,12 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) => {
   const {
     lang,
     setLang,
@@ -59,6 +65,15 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside className="fixed inset-y-0 start-0 z-50 flex w-72 flex-col border-e border-border bg-card">
+  // On mobile, hide unless explicitly open
+  const isMobileControlled = mobileOpen !== undefined;
+  
+  return <aside className={cn(
+    "fixed inset-y-0 start-0 z-50 flex w-72 flex-col border-e border-border bg-card transition-transform duration-300",
+    isMobileControlled && !mobileOpen && "-translate-x-full",
+    isMobileControlled && mobileOpen && "translate-x-0"
+  )}>
+      {/* Logo */}
       <div className="flex h-16 items-center gap-3 border-b border-border px-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-primary">
           <Sparkles className="h-5 w-5 text-white" />
@@ -82,6 +97,14 @@ export const Sidebar: React.FC = () => {
                 isActive ? 'bg-primary text-primary-foreground glow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
             >
+        const isActive = location.pathname === item.path || item.path !== '/' && location.pathname.startsWith(item.path);
+        // Generate ID based on path for onboarding targeting
+        const navId = item.path === '/agents' ? 'nav-agents' 
+          : item.path === '/knowledge-base' ? 'nav-knowledge'
+          : item.path === '/multi-agent-canvas' ? 'nav-workflows'
+          : item.path === '/ai-chat' ? 'nav-chat'
+          : undefined;
+        return <Link key={item.path} id={navId} to={item.path} onClick={onMobileClose} className={cn('group flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all', isActive ? 'bg-primary text-primary-foreground glow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
               <item.icon className={cn('h-5 w-5 transition-colors', isActive ? 'text-primary-foreground' : 'text-muted-foreground group-hover:text-primary')} />
               {item.label}
             </Link>

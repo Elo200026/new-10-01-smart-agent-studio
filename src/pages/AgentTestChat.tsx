@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { SmartSuggestions, generateAgentTestSuggestions } from '@/components/chat/SmartSuggestions';
 import { PromptRefinement, refinePrompt, usePromptRefinement } from '@/components/chat/PromptRefinement';
 import { ChatMessage, ChatMessageData } from '@/components/chat/ChatMessage';
+import { getSupabaseUrl } from '@/lib/env';
 
 interface Message extends ChatMessageData {
   timestamp: Date;
@@ -29,7 +30,7 @@ interface Message extends ChatMessageData {
   };
 }
 
-const RAG_CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rag-chat`;
+const RAG_CHAT_URL = `${getSupabaseUrl()}/functions/v1/rag-chat`;
 
 export const AgentTestChat: React.FC = () => {
   const { t } = useApp();
@@ -42,6 +43,19 @@ export const AgentTestChat: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const promptRefinement = usePromptRefinement();
+
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to use the chat.';
+    if (status === 403) return 'You do not have permission to access this resource.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
+
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+
+  const getBoolean = (value: unknown, fallback: boolean) =>
+    typeof value === 'boolean' ? value : fallback;
 
   const { data: agents } = useQuery({
     queryKey: ['agents'],
@@ -124,7 +138,7 @@ export const AgentTestChat: React.FC = () => {
 
     try {
       // Get response rules from agent
-      const responseRules = selectedAgentData?.response_rules as any || {};
+      const responseRules = asRecord(selectedAgentData?.response_rules);
       
       const resp = await fetch(RAG_CHAT_URL, {
         method: 'POST',
@@ -141,10 +155,13 @@ export const AgentTestChat: React.FC = () => {
             intro_sentence: selectedAgentData?.intro_sentence,
             response_rules: {
               ...responseRules,
-              include_confidence_scores: responseRules.include_confidence_scores ?? false,
-              use_bullet_points: responseRules.use_bullet_points ?? false,
-              summarize_at_end: responseRules.summarize_at_end ?? false,
-              custom_response_template: responseRules.custom_response_template ?? null,
+              include_confidence_scores: getBoolean(responseRules.include_confidence_scores, false),
+              use_bullet_points: getBoolean(responseRules.use_bullet_points, false),
+              summarize_at_end: getBoolean(responseRules.summarize_at_end, false),
+              custom_response_template:
+                typeof responseRules.custom_response_template === 'string'
+                  ? responseRules.custom_response_template
+                  : null,
             },
           },
           folder_ids: selectedAgentData?.allowed_folders || [],
@@ -165,8 +182,11 @@ export const AgentTestChat: React.FC = () => {
       });
 
       if (!resp.ok) {
-        const errorData = await resp.json();
-        throw new Error(errorData.error || 'Failed to get response');
+        const errorData = await resp.json().catch(() => ({}));
+        const fallbackMessage = errorData.error || 'Failed to get response';
+        toast.error(getFunctionErrorMessage(resp.status, fallbackMessage));
+        setIsLoading(false);
+        return;
       }
 
       const result = await resp.json();

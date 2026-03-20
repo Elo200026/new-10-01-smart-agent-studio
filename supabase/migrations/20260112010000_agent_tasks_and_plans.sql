@@ -1,0 +1,3 @@
+ALTER TABLE ai_profiles
+ADD COLUMN IF NOT EXISTS agent_tasks JSONB DEFAULT '[]'::jsonb,
+ADD COLUMN IF NOT EXISTS task_plan JSONB;

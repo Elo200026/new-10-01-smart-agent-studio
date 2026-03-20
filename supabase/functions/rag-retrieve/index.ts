@@ -1,9 +1,39 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const getAIConfig = () => {
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  const groqKey = Deno.env.get("GROQ_API_KEY");
+
+  if (lovableKey) return {
+    apiUrl: "https://ai.gateway.lovable.dev/v1/chat/completions",
+    apiKey: lovableKey,
+    model: "google/gemini-2.5-flash",
+    provider: "lovable"
+  };
+  if (openaiKey) return {
+    apiUrl: "https://api.openai.com/v1/chat/completions",
+    apiKey: openaiKey,
+    model: "gpt-4o-mini",
+    provider: "openai"
+  };
+  if (groqKey) return {
+    apiUrl: "https://api.groq.com/openai/v1/chat/completions",
+    apiKey: groqKey,
+    model: "llama-3.1-70b-versatile",
+    provider: "groq"
+  };
+  return { apiUrl: null, apiKey: null, model: null, provider: null };
 };
 
 interface RetrievalConfig {
@@ -41,8 +71,8 @@ interface QueryExpansion {
 
 // Expand query using LLM
 async function expandQuery(query: string): Promise<QueryExpansion> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+
   const expansion: QueryExpansion = {
     original: query,
     expanded: [query],
@@ -52,17 +82,17 @@ async function expandQuery(query: string): Promise<QueryExpansion> {
     entities: []
   };
 
-  if (!LOVABLE_API_KEY) return expansion;
+  if (!apiKey) return expansion;
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
           {
             role: "system",
@@ -111,20 +141,20 @@ Respond with valid JSON:
 
 // Keyword-based search (BM25-like scoring)
 async function keywordSearch(
-  supabase: any, 
-  queries: string[], 
+  supabase: SupabaseClient,
+  queries: string[],
   folderIds: string[] | undefined,
   limit: number
 ): Promise<RetrievedChunk[]> {
   const results: Map<string, RetrievedChunk> = new Map();
-  
+
   for (const query of queries) {
     // Extract keywords (simple tokenization)
     const keywords = query.toLowerCase()
       .replace(/[^\w\s]/g, '')
       .split(/\s+/)
       .filter(w => w.length > 2);
-    
+
     if (keywords.length === 0) continue;
 
     // Build search query
@@ -151,12 +181,12 @@ async function keywordSearch(
     for (const chunk of (data || [])) {
       const content = chunk.content.toLowerCase();
       let score = 0;
-      
+
       for (const keyword of keywords) {
         const matches = (content.match(new RegExp(keyword, 'gi')) || []).length;
         score += matches * (1 / Math.log(content.length + 1)); // TF-IDF-like scoring
       }
-      
+
       // Boost by quality score
       score *= (0.5 + chunk.quality_score);
 
@@ -184,19 +214,19 @@ async function keywordSearch(
 
 // Semantic tag-based search
 async function semanticTagSearch(
-  supabase: any,
+  supabase: SupabaseClient,
   queries: string[],
   entities: { name: string; type: string }[],
   folderIds: string[] | undefined,
   limit: number
 ): Promise<RetrievedChunk[]> {
   const results: Map<string, RetrievedChunk> = new Map();
-  
+
   // Extract potential tags from queries
-  const potentialTags = queries.flatMap(q => 
+  const potentialTags = queries.flatMap(q =>
     q.toLowerCase().split(/\s+/).filter(w => w.length > 3)
   );
-  
+
   // Add entity names
   const entityNames = entities.map(e => e.name.toLowerCase());
   const searchTerms = [...new Set([...potentialTags, ...entityNames])];
@@ -221,12 +251,12 @@ async function semanticTagSearch(
   }
 
   for (const chunk of (data || [])) {
-    const tagOverlap = (chunk.semantic_tags || []).filter((t: string) => 
+    const tagOverlap = (chunk.semantic_tags || []).filter((t: string) =>
       searchTerms.some(st => t.toLowerCase().includes(st))
     ).length;
-    
+
     const score = tagOverlap * 0.3 + chunk.quality_score * 0.2;
-    
+
     results.set(chunk.id, {
       id: chunk.id,
       content: chunk.content,
@@ -247,14 +277,14 @@ async function semanticTagSearch(
 
 // Knowledge graph traversal for related chunks
 async function graphSearch(
-  supabase: any,
+  supabase: SupabaseClient,
   entities: { name: string; type: string }[],
   limit: number
 ): Promise<RetrievedChunk[]> {
   if (entities.length === 0) return [];
 
   const entityNames = entities.map(e => e.name);
-  
+
   // Find related entities via knowledge graph
   const { data: graphData, error: graphError } = await supabase
     .from('rag_knowledge_graph')
@@ -267,8 +297,15 @@ async function graphSearch(
   }
 
   // Get unique chunk IDs
-  const chunkIds = [...new Set(graphData.map((g: any) => g.chunk_id).filter(Boolean))];
-  
+  const chunkIds = [
+    ...new Set(
+      graphData
+        .filter(isRecord)
+        .map((g) => g.chunk_id)
+        .filter((id): id is string => typeof id === 'string')
+    ),
+  ];
+
   if (chunkIds.length === 0) return [];
 
   const { data: chunks, error: chunkError } = await supabase
@@ -279,22 +316,24 @@ async function graphSearch(
 
   if (chunkError) return [];
 
-  return (chunks || []).map((chunk: any) => ({
-    id: chunk.id,
-    content: chunk.content,
-    source_file: chunk.source_file,
+  if (!Array.isArray(chunks)) return [];
+
+  return chunks.filter(isRecord).map((chunk) => ({
+    id: String(chunk.id),
+    content: String(chunk.content),
+    source_file: String(chunk.source_file),
     relevance_score: 0.5, // Base score for graph-retrieved chunks
-    chunk_index: chunk.chunk_index,
-    document_context: chunk.document_context,
-    key_concepts: chunk.key_concepts || [],
-    semantic_tags: chunk.semantic_tags || [],
-    quality_score: chunk.quality_score || 0.5
+    chunk_index: Number(chunk.chunk_index ?? 0),
+    document_context: chunk.document_context ? String(chunk.document_context) : null,
+    key_concepts: Array.isArray(chunk.key_concepts) ? (chunk.key_concepts as string[]) : [],
+    semantic_tags: Array.isArray(chunk.semantic_tags) ? (chunk.semantic_tags as string[]) : [],
+    quality_score: typeof chunk.quality_score === 'number' ? chunk.quality_score : 0.5,
   }));
 }
 
 // Hybrid search combining multiple strategies
 async function hybridSearch(
-  supabase: any,
+  supabase: SupabaseClient,
   queryExpansion: QueryExpansion,
   config: RetrievalConfig
 ): Promise<RetrievedChunk[]> {
@@ -345,25 +384,25 @@ async function rerankResults(
   chunks: RetrievedChunk[],
   topN: number
 ): Promise<RetrievedChunk[]> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  
-  if (!LOVABLE_API_KEY || chunks.length <= topN) {
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+
+  if (!apiKey || chunks.length <= topN) {
     return chunks.slice(0, topN);
   }
 
   try {
-    const chunkSummaries = chunks.slice(0, 10).map((c, i) => 
+    const chunkSummaries = chunks.slice(0, 10).map((c, i) =>
       `[${i}] ${c.content.substring(0, 300)}...`
     ).join('\n\n');
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
           {
             role: "system",
@@ -388,7 +427,7 @@ Only include the top ${topN} most relevant passages.`
         try {
           const parsed = JSON.parse(jsonMatch[0]);
           const rankings = parsed.rankings || [];
-          
+
           const reranked: RetrievedChunk[] = [];
           for (let i = 0; i < Math.min(rankings.length, topN); i++) {
             const idx = rankings[i];
@@ -400,7 +439,7 @@ Only include the top ${topN} most relevant passages.`
               });
             }
           }
-          
+
           if (reranked.length > 0) {
             return reranked;
           }
@@ -418,15 +457,15 @@ Only include the top ${topN} most relevant passages.`
 
 // Multi-hop retrieval for complex queries
 async function multiHopRetrieval(
-  supabase: any,
+  supabase: SupabaseClient,
   query: string,
   initialChunks: RetrievedChunk[],
   maxDepth: number,
   config: RetrievalConfig
 ): Promise<RetrievedChunk[]> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  
-  if (!LOVABLE_API_KEY || maxDepth <= 0) {
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+
+  if (!apiKey || maxDepth <= 0) {
     return initialChunks;
   }
 
@@ -436,16 +475,16 @@ async function multiHopRetrieval(
   for (let hop = 0; hop < maxDepth; hop++) {
     // Generate follow-up queries based on current context
     const context = currentChunks.map(c => c.content.substring(0, 200)).join('\n');
-    
+
     try {
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const response = await fetch(apiUrl!, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+          "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: aiModel,
           messages: [
             {
               role: "system",
@@ -468,35 +507,35 @@ Respond with JSON: {"follow_up_queries": ["query1", "query2"], "needs_more_info"
         if (jsonMatch) {
           try {
             const parsed = JSON.parse(jsonMatch[0]);
-            
+
             if (!parsed.needs_more_info) break;
-            
+
             const followUpQueries = parsed.follow_up_queries || [];
             if (followUpQueries.length === 0) break;
 
-          // Search for follow-up queries
-          const followUpExpansion: QueryExpansion = {
-            original: followUpQueries[0],
-            expanded: followUpQueries,
-            hypothetical_answer: null,
-            subqueries: [],
-            intent: "informational",
-            entities: []
-          };
+            // Search for follow-up queries
+            const followUpExpansion: QueryExpansion = {
+              original: followUpQueries[0],
+              expanded: followUpQueries,
+              hypothetical_answer: null,
+              subqueries: [],
+              intent: "informational",
+              entities: []
+            };
 
-          const newChunks = await hybridSearch(supabase, followUpExpansion, {
-            ...config,
-            top_k: 3
-          });
+            const newChunks = await hybridSearch(supabase, followUpExpansion, {
+              ...config,
+              top_k: 3
+            });
 
-          // Add new chunks that aren't duplicates
-          const existingIds = new Set(allChunks.map(c => c.id));
-          const uniqueNew = newChunks.filter(c => !existingIds.has(c.id));
-          
-          if (uniqueNew.length === 0) break;
-          
-          allChunks = [...allChunks, ...uniqueNew];
-          currentChunks = uniqueNew;
+            // Add new chunks that aren't duplicates
+            const existingIds = new Set(allChunks.map(c => c.id));
+            const uniqueNew = newChunks.filter(c => !existingIds.has(c.id));
+
+            if (uniqueNew.length === 0) break;
+
+            allChunks = [...allChunks, ...uniqueNew];
+            currentChunks = uniqueNew;
           } catch (parseError) {
             console.error("Multi-hop JSON parse error:", parseError);
             break;
@@ -544,12 +583,12 @@ serve(async (req) => {
       );
     }
 
-    const { 
-      query, 
+    const {
+      query,
       conversation_id,
-      config: userConfig 
+      config: userConfig
     } = await req.json();
-    
+
     if (!query) {
       return new Response(
         JSON.stringify({ error: "query is required" }),
@@ -582,7 +621,7 @@ serve(async (req) => {
     if (config.use_query_expansion) {
       queryExpansion = await expandQuery(query);
       console.log(`Query expanded: ${queryExpansion.expanded.length} variants, ${queryExpansion.subqueries.length} subqueries`);
-      
+
       // Log query expansion
       await supabase.from('rag_query_expansions').insert({
         original_query: query,
@@ -617,9 +656,9 @@ serve(async (req) => {
     // Step 4: Multi-hop Retrieval (if enabled)
     if (config.use_multi_hop && retrievedChunks.length > 0) {
       retrievedChunks = await multiHopRetrieval(
-        supabase, 
-        query, 
-        retrievedChunks, 
+        supabase,
+        query,
+        retrievedChunks,
         config.max_hop_depth,
         config
       );

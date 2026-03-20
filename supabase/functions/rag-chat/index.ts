@@ -1,15 +1,45 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
 // =============================================================================
 // AGENTIC RAG 2.0 - Advanced AI Features Implementation
 // Features: ReAct Pattern, Adaptive Retrieval, Agent Memory, Tool Calling, Re-work Loop
 // =============================================================================
+
+const getAIConfig = () => {
+  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  const groqKey = Deno.env.get("GROQ_API_KEY");
+
+  if (lovableKey) return {
+    apiUrl: "https://ai.gateway.lovable.dev/v1/chat/completions",
+    apiKey: lovableKey,
+    model: "google/gemini-2.5-flash",
+    provider: "lovable"
+  };
+  if (openaiKey) return {
+    apiUrl: "https://api.openai.com/v1/chat/completions",
+    apiKey: openaiKey,
+    model: "gpt-4o-mini",
+    provider: "openai"
+  };
+  if (groqKey) return {
+    apiUrl: "https://api.groq.com/openai/v1/chat/completions",
+    apiKey: groqKey,
+    model: "llama-3.1-70b-versatile",
+    provider: "groq"
+  };
+  return { apiUrl: null, apiKey: null, model: null, provider: null };
+};
 
 interface Citation {
   chunk_id: string;
@@ -22,8 +52,8 @@ interface ReActStep {
   step_type: 'thought' | 'action' | 'observation' | 'answer';
   content: string;
   tool_name?: string;
-  tool_input?: any;
-  tool_output?: any;
+  tool_input?: Record<string, unknown>;
+  tool_output?: unknown;
   confidence?: number;
   latency_ms?: number;
 }
@@ -33,7 +63,7 @@ interface AgentTool {
   display_name: string;
   description: string;
   tool_type: string;
-  config: any;
+  config: Record<string, unknown>;
 }
 
 interface ReworkSettings {
@@ -53,17 +83,41 @@ interface ValidationScore {
 
 type QueryComplexity = 'simple' | 'moderate' | 'complex' | 'conversational';
 
+interface ChatMessage {
+  role: string;
+  content: string;
+}
+
+interface AgentConfig {
+  persona?: string;
+  role_description?: string;
+  intro_sentence?: string;
+  response_rules?: Record<string, unknown>;
+  custom_response_template?: string | null;
+}
+
+interface AgentMemoryItem {
+  memory_type?: string;
+  memory_key?: string;
+  memory_value?: unknown;
+}
+
+interface RetrievedChunk {
+  id: string;
+  source_file: string;
+  content: string;
+  relevance_score?: number;
+}
+
 // =============================================================================
 // QUERY COMPLEXITY ANALYZER - Adaptive Retrieval Strategy
 // =============================================================================
 async function analyzeQueryComplexity(
   query: string,
-  conversationHistory: any[],
-  supabase: any,
+  conversationHistory: ChatMessage[],
+  supabase: SupabaseClient,
   userId: string | null = null
 ): Promise<{ complexity: QueryComplexity; strategy: string; reasoning: string }> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  
   // Check cache first
   const queryHash = await crypto.subtle.digest(
     "SHA-256",
@@ -86,19 +140,21 @@ async function analyzeQueryComplexity(
     };
   }
 
-  if (!LOVABLE_API_KEY) {
-    return { complexity: 'moderate', strategy: 'standard_rag', reasoning: 'Default fallback' };
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+
+  if (!apiKey) {
+    return { complexity: 'moderate', strategy: 'standard_rag', reasoning: 'No AI provider configured' };
   }
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
           {
             role: "system",
@@ -142,16 +198,18 @@ Last 2 messages context: ${conversationHistory.slice(-2).map(m => m.content?.sub
       if (jsonMatch) {
         try {
           const parsed = JSON.parse(jsonMatch[0]);
-          
+
           // Cache the result with user_id for RLS compliance
-          await supabase.from('query_complexity_cache').insert({
-            query_hash: hashHex,
-            original_query: query.substring(0, 500),
-            complexity: parsed.complexity,
-            recommended_strategy: parsed.strategy,
-            analysis_details: parsed.indicators || {},
-            user_id: userId
-          }).catch(() => {}); // Ignore cache errors
+          try {
+            await supabase.from('query_complexity_cache').insert({
+              query_hash: hashHex,
+              original_query: query.substring(0, 500),
+              complexity: parsed.complexity,
+              recommended_strategy: parsed.strategy,
+              analysis_details: parsed.indicators || {},
+              user_id: userId
+            });
+          } catch { /* Ignore cache errors */ }
 
           return {
             complexity: parsed.complexity || 'moderate',
@@ -176,8 +234,8 @@ Last 2 messages context: ${conversationHistory.slice(-2).map(m => m.content?.sub
 async function retrieveAgentMemory(
   userId: string,
   agentId: string | null,
-  supabase: any
-): Promise<any[]> {
+  supabase: SupabaseClient
+): Promise<AgentMemoryItem[]> {
   try {
     let query = supabase
       .from('agent_memory')
@@ -192,20 +250,24 @@ async function retrieveAgentMemory(
     }
 
     const { data } = await query;
-    
+
     // Update access timestamps
     if (data && data.length > 0) {
-      const ids = data.map((m: any) => m.id);
+      const ids = data
+        .filter(isRecord)
+        .map((memory) => memory.id)
+        .filter((id): id is string => typeof id === 'string');
+      // Note: Supabase JS client doesn't support raw SQL expressions in updates
+      // We just update last_accessed; access_count would need a DB function
       await supabase
         .from('agent_memory')
-        .update({ 
-          last_accessed: new Date().toISOString(),
-          access_count: supabase.raw('access_count + 1')
+        .update({
+          last_accessed: new Date().toISOString()
         })
         .in('id', ids);
     }
 
-    return data || [];
+    return Array.isArray(data) ? (data as AgentMemoryItem[]) : [];
   } catch (error) {
     console.error("Memory retrieval error:", error);
     return [];
@@ -218,9 +280,9 @@ async function updateAgentMemory(
   workspaceId: string | null,
   memoryType: string,
   memoryKey: string,
-  memoryValue: any,
+  memoryValue: unknown,
   conversationId: string | null,
-  supabase: any
+  supabase: SupabaseClient
 ): Promise<void> {
   try {
     await supabase
@@ -251,7 +313,7 @@ async function executeKnowledgeSearch(
   folderIds: string[] | undefined,
   supabaseUrl: string,
   topK: number = 5
-): Promise<any[]> {
+): Promise<RetrievedChunk[]> {
   try {
     const response = await fetch(`${supabaseUrl}/functions/v1/rag-retrieve`, {
       method: "POST",
@@ -274,7 +336,7 @@ async function executeKnowledgeSearch(
 
     if (response.ok) {
       const data = await response.json();
-      return data.chunks || [];
+      return Array.isArray(data?.chunks) ? (data.chunks as RetrievedChunk[]) : [];
     }
   } catch (error) {
     console.error("Knowledge search error:", error);
@@ -286,18 +348,18 @@ async function executeSummarize(
   content: string,
   maxLength: number = 500
 ): Promise<string> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) return content.substring(0, maxLength);
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+  if (!apiKey) return content.substring(0, maxLength);
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
           { role: "system", content: `Summarize the following content concisely in ${maxLength} characters or less. Preserve key facts and insights.` },
           { role: "user", content: content }
@@ -318,35 +380,131 @@ async function executeSummarize(
 
 async function executeCalculate(expression: string): Promise<string> {
   try {
-    // Safe evaluation for basic math
-    const sanitized = expression.replace(/[^0-9+\-*/().%\s]/g, '');
-    const result = Function(`"use strict"; return (${sanitized})`)();
+    // Security validation: limit expression length
+    if (expression.length > 200) {
+      return 'Error: Expression too long (max 200 characters)';
+    }
+
+    // Strict whitelist validation - only allow numbers, operators, parentheses, decimals
+    const sanitized = expression.replace(/\s/g, '');
+    if (!/^[\d+\-*/().%]+$/.test(sanitized)) {
+      return 'Error: Invalid characters in expression. Only numbers and operators (+, -, *, /, %, .) are allowed.';
+    }
+
+    // Check for empty expression after sanitization
+    if (!sanitized || sanitized.length === 0) {
+      return 'Error: Empty expression';
+    }
+
+    // Check balanced parentheses
+    let depth = 0;
+    for (const char of sanitized) {
+      if (char === '(') depth++;
+      if (char === ')') depth--;
+      if (depth < 0) return 'Error: Unbalanced parentheses';
+    }
+    if (depth !== 0) return 'Error: Unbalanced parentheses';
+
+    // Prevent consecutive operators (except unary minus after opening paren)
+    if (/[+\-*/]{2,}/.test(sanitized.replace(/\(-/g, '(~'))) {
+      return 'Error: Invalid operator sequence';
+    }
+
+    // Safe recursive descent parser for basic math
+    const result = safeEvaluate(sanitized);
+
+    if (typeof result !== 'number' || !isFinite(result)) {
+      return 'Error: Invalid calculation result';
+    }
+
     return `Result: ${result}`;
   } catch (error) {
-    return `Error: Unable to calculate "${expression}"`;
+    return 'Error: Calculation failed';
   }
 }
 
+// Safe math expression evaluator using recursive descent parser
+// This avoids using Function constructor or eval
+function safeEvaluate(expr: string): number {
+  let pos = 0;
+
+  function parseExpression(): number {
+    let result = parseTerm();
+    while (pos < expr.length && (expr[pos] === '+' || expr[pos] === '-')) {
+      const op = expr[pos++];
+      const term = parseTerm();
+      result = op === '+' ? result + term : result - term;
+    }
+    return result;
+  }
+
+  function parseTerm(): number {
+    let result = parseFactor();
+    while (pos < expr.length && (expr[pos] === '*' || expr[pos] === '/' || expr[pos] === '%')) {
+      const op = expr[pos++];
+      const factor = parseFactor();
+      if (op === '*') result *= factor;
+      else if (op === '/') {
+        if (factor === 0) throw new Error('Division by zero');
+        result /= factor;
+      } else {
+        if (factor === 0) throw new Error('Modulo by zero');
+        result %= factor;
+      }
+    }
+    return result;
+  }
+
+  function parseFactor(): number {
+    // Handle unary minus
+    if (expr[pos] === '-') {
+      pos++;
+      return -parseFactor();
+    }
+
+    // Handle parentheses
+    if (expr[pos] === '(') {
+      pos++; // skip '('
+      const result = parseExpression();
+      pos++; // skip ')'
+      return result;
+    }
+
+    // Parse number (including decimals)
+    let numStr = '';
+    while (pos < expr.length && (/\d/.test(expr[pos]) || expr[pos] === '.')) {
+      numStr += expr[pos++];
+    }
+
+    if (!numStr) throw new Error('Expected number');
+    const num = parseFloat(numStr);
+    if (isNaN(num)) throw new Error('Invalid number');
+    return num;
+  }
+
+  return parseExpression();
+}
+
 async function executeCompare(
-  chunks: any[],
+  chunks: RetrievedChunk[],
   aspect: string
 ): Promise<string> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY || chunks.length < 2) return "Insufficient documents for comparison.";
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+  if (!apiKey || chunks.length < 2) return "Insufficient documents for comparison.";
 
   try {
-    const docs = chunks.slice(0, 5).map((c, i) => 
+    const docs = chunks.slice(0, 5).map((c, i) =>
       `Document ${i + 1} (${c.source_file}):\n${c.content.substring(0, 800)}`
     ).join('\n\n---\n\n');
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
           { role: "system", content: "You are a document comparison expert. Compare the provided documents and highlight similarities, differences, and key insights." },
           { role: "user", content: `Compare these documents${aspect ? ` focusing on: ${aspect}` : ''}:\n\n${docs}` }
@@ -372,46 +530,46 @@ async function executeReActLoop(
   query: string,
   tools: AgentTool[],
   folderIds: string[] | undefined,
-  agentConfig: any,
-  conversationHistory: any[],
-  userMemory: any[],
+  agentConfig: AgentConfig,
+  conversationHistory: ChatMessage[],
+  userMemory: AgentMemoryItem[],
   supabaseUrl: string,
-  supabase: any,
+  supabase: SupabaseClient,
   conversationId: string | null,
   maxSteps: number = 5
-): Promise<{ steps: ReActStep[]; finalAnswer: string; chunks: any[]; citations: Citation[] }> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  
-  if (!LOVABLE_API_KEY) {
-    return { 
-      steps: [], 
-      finalAnswer: "AI service is not configured.", 
-      chunks: [], 
-      citations: [] 
+): Promise<{ steps: ReActStep[]; finalAnswer: string; chunks: RetrievedChunk[]; citations: Citation[] }> {
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+
+  if (!apiKey) {
+    return {
+      steps: [],
+      finalAnswer: "AI service is not configured.",
+      chunks: [],
+      citations: []
     };
   }
 
   const steps: ReActStep[] = [];
-  let allChunks: any[] = [];
+  let allChunks: RetrievedChunk[] = [];
   const citations: Citation[] = [];
 
   // Build tool descriptions for the agent
-  const toolDescriptions = tools.map(t => 
+  const toolDescriptions = tools.map(t =>
     `- ${t.name}: ${t.description}`
   ).join('\n');
 
   // Build memory context
   const memoryContext = userMemory.length > 0
-    ? `\n\nUser Memory (what you know about this user):\n${userMemory.map(m => 
-        `- ${m.memory_type}: ${m.memory_key} = ${JSON.stringify(m.memory_value)}`
-      ).join('\n')}`
+    ? `\n\nUser Memory (what you know about this user):\n${userMemory.map(m =>
+      `- ${m.memory_type}: ${m.memory_key} = ${JSON.stringify(m.memory_value)}`
+    ).join('\n')}`
     : '';
 
   // Build agent persona
   let agentPersona = "You are an intelligent AI agent with access to tools.";
   if (agentConfig?.persona) agentPersona = agentConfig.persona;
   if (agentConfig?.role_description) agentPersona += `\nRole: ${agentConfig.role_description}`;
-  
+
   // Build response rules section
   let responseRulesSection = "";
   if (agentConfig?.response_rules) {
@@ -459,10 +617,10 @@ ANSWER: [Your final comprehensive answer]
 ${memoryContext}${responseRulesSection}`;
 
   let currentContext = `Question: ${query}`;
-  
+
   // Add conversation context
   if (conversationHistory.length > 0) {
-    const recentConvo = conversationHistory.slice(-4).map(m => 
+    const recentConvo = conversationHistory.slice(-4).map(m =>
       `${m.role}: ${m.content?.substring(0, 200) || ''}`
     ).join('\n');
     currentContext = `Recent conversation:\n${recentConvo}\n\nCurrent question: ${query}`;
@@ -472,14 +630,14 @@ ${memoryContext}${responseRulesSection}`;
     const stepStart = Date.now();
 
     try {
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const response = await fetch(apiUrl!, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+          "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: aiModel,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: currentContext }
@@ -529,13 +687,14 @@ ${memoryContext}${responseRulesSection}`;
 
       if (actionMatch) {
         const toolName = actionMatch[1].toLowerCase();
-        let toolInput: any = {};
-        
+        let toolInput: Record<string, unknown> = {};
+
         try {
           const inputStr = inputMatch?.[1]?.trim() || "{}";
           // Try to parse as JSON, or use as query string
           if (inputStr.startsWith('{')) {
-            toolInput = JSON.parse(inputStr);
+            const parsed = JSON.parse(inputStr) as unknown;
+            toolInput = isRecord(parsed) ? parsed : {};
           } else {
             toolInput = { query: inputStr };
           }
@@ -553,55 +712,75 @@ ${memoryContext}${responseRulesSection}`;
 
         // Execute the tool
         const toolStart = Date.now();
-        let toolOutput: any = null;
+        let toolOutput: unknown = null;
+        const toolQuery = typeof toolInput.query === 'string' ? toolInput.query : query;
+        const toolTopK = typeof toolInput.top_k === 'number' ? toolInput.top_k : 5;
 
         switch (toolName) {
-          case 'knowledge_search':
-            const searchQuery = toolInput.query || query;
-            const chunks = await executeKnowledgeSearch(searchQuery, folderIds, supabaseUrl, toolInput.top_k || 5);
+          case 'knowledge_search': {
+            const chunks = await executeKnowledgeSearch(toolQuery, folderIds, supabaseUrl, toolTopK);
             allChunks = [...allChunks, ...chunks];
-            toolOutput = chunks.map((c: any, i: number) => ({
+            toolOutput = chunks.map((chunk, i) => ({
               index: i + 1,
-              source: c.source_file,
-              content: c.content.substring(0, 500),
-              relevance: c.relevance_score || 0.5
+              source: chunk.source_file,
+              content: chunk.content.substring(0, 500),
+              relevance: chunk.relevance_score || 0.5
             }));
-            
+
             // Build citations
-            chunks.forEach((c: any, i: number) => {
+            chunks.forEach((chunk) => {
               citations.push({
-                chunk_id: c.id,
-                source_file: c.source_file,
-                citation_text: c.content.substring(0, 200),
-                confidence_score: c.relevance_score || 0.5
+                chunk_id: chunk.id,
+                source_file: chunk.source_file,
+                citation_text: chunk.content.substring(0, 200),
+                confidence_score: chunk.relevance_score || 0.5
               });
             });
             break;
+          }
 
           case 'summarizer':
-          case 'summarize':
-            const summaryContent = toolInput.content || allChunks.map(c => c.content).join('\n\n');
-            toolOutput = await executeSummarize(summaryContent, toolInput.max_length || 500);
+          case 'summarize': {
+            const summaryContent =
+              typeof toolInput.content === 'string'
+                ? toolInput.content
+                : allChunks.map(c => c.content).join('\n\n');
+            const maxLength = typeof toolInput.max_length === 'number' ? toolInput.max_length : 500;
+            toolOutput = await executeSummarize(summaryContent, maxLength);
             break;
+          }
 
           case 'calculator':
-          case 'calculate':
-            toolOutput = await executeCalculate(toolInput.expression || toolInput.query || '');
+          case 'calculate': {
+            const expression =
+              typeof toolInput.expression === 'string'
+                ? toolInput.expression
+                : typeof toolInput.query === 'string'
+                  ? toolInput.query
+                  : '';
+            toolOutput = await executeCalculate(expression);
             break;
+          }
 
           case 'comparator':
-          case 'compare':
-            toolOutput = await executeCompare(allChunks, toolInput.aspect || '');
+          case 'compare': {
+            const aspect = typeof toolInput.aspect === 'string' ? toolInput.aspect : '';
+            toolOutput = await executeCompare(allChunks, aspect);
             break;
+          }
 
           case 'analyzer':
-          case 'analyze':
+          case 'analyze': {
             // Deep analysis uses more chunks and detailed prompting
             if (allChunks.length === 0) {
               allChunks = await executeKnowledgeSearch(query, folderIds, supabaseUrl, 10);
             }
-            toolOutput = `Retrieved ${allChunks.length} documents for deep analysis. Key sources: ${allChunks.slice(0, 3).map(c => c.source_file).join(', ')}`;
+            toolOutput = `Retrieved ${allChunks.length} documents for deep analysis. Key sources: ${allChunks
+              .slice(0, 3)
+              .map(c => c.source_file)
+              .join(', ')}`;
             break;
+          }
 
           default:
             toolOutput = `Unknown tool: ${toolName}`;
@@ -610,8 +789,8 @@ ${memoryContext}${responseRulesSection}`;
         const toolLatency = Date.now() - toolStart;
 
         // Add observation
-        const observationContent = typeof toolOutput === 'string' 
-          ? toolOutput 
+        const observationContent = typeof toolOutput === 'string'
+          ? toolOutput
           : JSON.stringify(toolOutput, null, 2).substring(0, 2000);
 
         steps.push({
@@ -643,26 +822,26 @@ ${memoryContext}${responseRulesSection}`;
   }
 
   // Max steps reached, generate final answer with gathered context
-  const finalContext = allChunks.map((c, i) => 
+  const finalContext = allChunks.map((c, i) =>
     `[Source ${i + 1}: ${c.source_file}]\n${c.content}`
   ).join('\n\n---\n\n');
 
   try {
-    const finalResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const finalResponse = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
-          { 
-            role: "system", 
-            content: `${agentPersona}\n\nProvide a comprehensive answer based on the gathered information. Use [Source N] format to cite sources.` 
+          {
+            role: "system",
+            content: `${agentPersona}\n\nProvide a comprehensive answer based on the gathered information. Use [Source N] format to cite sources.`
           },
-          { 
-            role: "user", 
+          {
+            role: "user",
             content: `Question: ${query}\n\nGathered Information:\n${finalContext.substring(0, 10000)}\n\nProvide a complete answer with citations.`
           }
         ],
@@ -680,11 +859,11 @@ ${memoryContext}${responseRulesSection}`;
     console.error("Final answer generation error:", error);
   }
 
-  return { 
-    steps, 
-    finalAnswer: "I gathered some information but couldn't formulate a complete answer. Please try rephrasing your question.", 
-    chunks: allChunks, 
-    citations 
+  return {
+    steps,
+    finalAnswer: "I gathered some information but couldn't formulate a complete answer. Please try rephrasing your question.",
+    chunks: allChunks,
+    citations
   };
 }
 
@@ -692,15 +871,15 @@ ${memoryContext}${responseRulesSection}`;
 // LOGGING HELPERS
 // =============================================================================
 async function logReasoningStep(
-  supabase: any,
+  supabase: SupabaseClient,
   conversationId: string | null,
   messageId: string | null,
   stepNumber: number,
   stepType: string,
   content: string,
   toolName: string | null,
-  toolInput: any,
-  toolOutput: any,
+  toolInput: Record<string, unknown> | null,
+  toolOutput: unknown,
   confidence: number | null,
   latencyMs: number
 ): Promise<void> {
@@ -723,7 +902,7 @@ async function logReasoningStep(
 }
 
 async function updateStrategyMetrics(
-  supabase: any,
+  supabase: SupabaseClient,
   workspaceId: string | null,
   strategyName: string,
   complexity: QueryComplexity,
@@ -779,26 +958,22 @@ async function updateStrategyMetrics(
 // =============================================================================
 async function detectHallucinations(
   response: string,
-  chunks: any[],
+  chunks: RetrievedChunk[],
   query: string
 ): Promise<{ detected: boolean; details: { claim: string; issue: string }[]; confidence: number }> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  
-  if (!LOVABLE_API_KEY || chunks.length === 0) {
-    return { detected: false, details: [], confidence: 0.5 };
-  }
-
   try {
     const context = chunks.slice(0, 5).map(c => c.content).join('\n\n');
+    const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+    if (!apiKey) return { detected: false, details: [], confidence: 0.5 };
 
-    const checkResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const checkResponse = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
           {
             role: "system",
@@ -858,24 +1033,24 @@ Check each factual claim in the response against the sources.`
 // =============================================================================
 function validateResponseCompliance(
   response: string,
-  responseRules: any,
+  responseRules: Record<string, unknown> | null,
   customTemplate: string | null
 ): ValidationScore {
   const issues: { type: string; severity: string; message: string }[] = [];
   let structureScore = 100;
   let rulesScore = 100;
-  
+
   // Check each enabled rule
   if (responseRules?.step_by_step === true) {
-    const hasSteps = /step[\s-]*\d|^[\s]*\d+[.):]/im.test(response) || 
-                     /^[\s]*[-•*]\s/m.test(response) ||
-                     /first.*then|next.*after/i.test(response);
+    const hasSteps = /step[\s-]*\d|^[\s]*\d+[.):]/im.test(response) ||
+      /^[\s]*[-•*]\s/m.test(response) ||
+      /first.*then|next.*after/i.test(response);
     if (!hasSteps) {
       issues.push({ type: 'rules', severity: 'warning', message: 'Missing step-by-step structure' });
       rulesScore -= 15;
     }
   }
-  
+
   if (responseRules?.cite_if_possible === true) {
     const hasCitations = /\[Source\s*\d+\]/i.test(response) || /\[\d+\]/i.test(response);
     if (!hasCitations) {
@@ -883,7 +1058,7 @@ function validateResponseCompliance(
       rulesScore -= 15;
     }
   }
-  
+
   if (responseRules?.include_confidence_scores === true) {
     const hasConfidence = /confidence[:\s]*\d+%?|(\d+%\s*confident)/i.test(response);
     if (!hasConfidence) {
@@ -891,7 +1066,7 @@ function validateResponseCompliance(
       rulesScore -= 10;
     }
   }
-  
+
   if (responseRules?.use_bullet_points === true) {
     const hasBullets = /^[\s]*[-•*]\s/m.test(response);
     if (!hasBullets) {
@@ -899,7 +1074,7 @@ function validateResponseCompliance(
       rulesScore -= 5;
     }
   }
-  
+
   if (responseRules?.summarize_at_end === true) {
     const hasSummary = /summary|to summarize|in conclusion|key takeaways/i.test(response);
     if (!hasSummary) {
@@ -907,7 +1082,7 @@ function validateResponseCompliance(
       rulesScore -= 10;
     }
   }
-  
+
   // Check template compliance if custom template is provided
   if (customTemplate) {
     const templatePlaceholders = customTemplate.match(/\{[A-Z_]+\}/g) || [];
@@ -919,7 +1094,7 @@ function validateResponseCompliance(
       '{SUMMARY}': /summary|conclusion/i,
       '{BULLETS}': /^[\s]*[-•*]\s/m,
     };
-    
+
     let matchedPlaceholders = 0;
     for (const placeholder of templatePlaceholders) {
       const check = placeholderChecks[placeholder];
@@ -927,21 +1102,21 @@ function validateResponseCompliance(
         matchedPlaceholders++;
       } else if (check) {
         structureScore -= 10;
-        issues.push({ 
-          type: 'structure', 
-          severity: 'warning', 
-          message: `Missing content for template placeholder: ${placeholder}` 
+        issues.push({
+          type: 'structure',
+          severity: 'warning',
+          message: `Missing content for template placeholder: ${placeholder}`
         });
       }
     }
-    
+
     if (templatePlaceholders.length > 0) {
       structureScore = Math.max(0, (matchedPlaceholders / templatePlaceholders.length) * 100);
     }
   }
-  
+
   const overallScore = Math.round((structureScore + rulesScore) / 2);
-  
+
   return {
     overall_score: Math.max(0, Math.min(100, overallScore)),
     structure_score: Math.max(0, structureScore),
@@ -957,26 +1132,26 @@ function validateResponseCompliance(
 async function reworkResponse(
   originalResponse: string,
   validationScore: ValidationScore,
-  responseRules: any,
+  responseRules: Record<string, unknown> | null,
   customTemplate: string | null,
   systemPrompt: string,
-  messages: any[],
+  messages: ChatMessage[],
   maxRetries: number
 ): Promise<{ response: string; attempts: number; finalScore: ValidationScore }> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  
-  if (!LOVABLE_API_KEY) {
+  const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+
+  if (!apiKey) {
     return { response: originalResponse, attempts: 0, finalScore: validationScore };
   }
-  
+
   let currentResponse = originalResponse;
   let currentScore = validationScore;
   let attempts = 0;
-  
+
   while (attempts < maxRetries && !currentScore.passed) {
     attempts++;
     console.log(`Re-work attempt ${attempts}: Current score ${currentScore.overall_score}`);
-    
+
     // Build correction prompt
     const issuesList = currentScore.issues.map(i => `- ${i.message}`).join('\n');
     const correctionInstructions = `
@@ -1002,14 +1177,14 @@ ${currentResponse}
 `;
 
     try {
-      const reworkRequest = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const reworkRequest = await fetch(apiUrl!, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+          "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: aiModel,
           messages: [
             { role: "system", content: systemPrompt + "\n\nIMPORTANT: You are correcting a previous response that didn't meet quality standards." },
             ...messages.slice(-4),
@@ -1022,7 +1197,7 @@ ${currentResponse}
       if (reworkRequest.ok) {
         const data = await reworkRequest.json();
         const newResponse = data.choices?.[0]?.message?.content || "";
-        
+
         if (newResponse.length > 50) {
           currentResponse = newResponse;
           currentScore = validateResponseCompliance(newResponse, responseRules, customTemplate);
@@ -1034,7 +1209,7 @@ ${currentResponse}
       break;
     }
   }
-  
+
   return { response: currentResponse, attempts, finalScore: currentScore };
 }
 
@@ -1048,20 +1223,20 @@ async function extractMemoryFromConversation(
   agentId: string | null,
   workspaceId: string | null,
   conversationId: string | null,
-  supabase: any
+  supabase: SupabaseClient
 ): Promise<void> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) return;
-
   try {
-    const extractResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+    if (!apiKey) return;
+
+    const extractResponse = await fetch(apiUrl!, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: aiModel,
         messages: [
           {
             role: "system",
@@ -1098,7 +1273,7 @@ Assistant responded: "${response.substring(0, 500)}"`
         try {
           const parsed = JSON.parse(jsonMatch[0]);
           const memories = parsed.memories || [];
-          
+
           for (const mem of memories) {
             if (mem.key && mem.value) {
               await updateAgentMemory(
@@ -1150,12 +1325,12 @@ function analyzeResponseBehavior(
   const words = response.split(/\s+/).filter(w => w.length > 0);
   const sentences = response.split(/[.!?]+/).filter(s => s.trim().length > 0);
   const paragraphs = response.split(/\n\n+/).filter(p => p.trim().length > 0);
-  
+
   const wordCount = words.length;
   const characterCount = response.length;
   const sentenceCount = sentences.length;
   const avgSentenceLength = sentenceCount > 0 ? wordCount / sentenceCount : 0;
-  
+
   // Detect formatting patterns
   const hasBulletPoints = /^[\s]*[-•*]\s/m.test(response);
   const hasNumberedList = /^[\s]*\d+[.)]\s/m.test(response);
@@ -1164,12 +1339,12 @@ function analyzeResponseBehavior(
   const citationCount = citationMatches ? citationMatches.length : 0;
   const hasHeaders = /^#+\s|^[A-Z][A-Z\s]+:$/m.test(response);
   const hasCodeBlocks = /```[\s\S]*?```/.test(response);
-  
+
   // Tone analysis
   const contractions = /(don't|won't|can't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|wouldn't|couldn't|shouldn't|I'm|you're|we're|they're|it's|that's|there's|here's|what's|who's|let's)/gi;
   const usesContractions = contractions.test(response);
   const usesFirstPerson = /\b(I|me|my|mine|we|us|our|ours)\b/i.test(response);
-  
+
   // Formal score (0-1): higher = more formal
   let formalScore = 0.5;
   if (!usesContractions) formalScore += 0.2;
@@ -1177,12 +1352,12 @@ function analyzeResponseBehavior(
   if (hasHeaders) formalScore += 0.1;
   if (avgSentenceLength > 20) formalScore += 0.1;
   formalScore = Math.min(1, formalScore);
-  
+
   // Determine structure category
   let structure: 'concise' | 'balanced' | 'detailed' = 'balanced';
   if (wordCount < 100) structure = 'concise';
   else if (wordCount > 300) structure = 'detailed';
-  
+
   // Check which rules were applied
   const rulesApplied: string[] = [];
   if (responseRules?.step_by_step && (hasNumberedList || hasBulletPoints)) {
@@ -1197,7 +1372,7 @@ function analyzeResponseBehavior(
       rulesApplied.push('refuse_if_uncertain');
     }
   }
-  
+
   return {
     word_count: wordCount,
     character_count: characterCount,
@@ -1231,9 +1406,40 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    const { 
-      messages, 
-      agentConfig, 
+    // Validate JWT authentication
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      console.error("Missing or invalid authorization header");
+      return new Response(
+        JSON.stringify({ error: "Missing authorization", success: false }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    // Create user-context client for auth validation
+    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } }
+    });
+
+    const { data: authData, error: authError } = await userClient.auth.getUser();
+    if (authError || !authData?.user) {
+      console.error("Authentication failed:", authError?.message || "No user found");
+      return new Response(
+        JSON.stringify({ error: "Unauthorized", success: false }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const authenticatedUserId = authData.user.id;
+    console.log(`Authenticated user: ${authenticatedUserId}`);
+
+    const {
+      messages,
+      agentConfig,
       conversation_id,
       folder_ids,
       workspace_id,
@@ -1247,7 +1453,10 @@ serve(async (req) => {
       rework_settings,
       custom_response_template
     } = await req.json();
-    
+
+    // Use authenticated user id, fallback to provided user_id for backward compat
+    const effectiveUserId = authenticatedUserId || user_id;
+
     // Parse rework settings with defaults
     const reworkConfig: ReworkSettings = rework_settings || {
       enabled: true,
@@ -1255,7 +1464,7 @@ serve(async (req) => {
       minimum_score_threshold: 70,
       auto_correct: true
     };
-    
+
     // Input validation
     if (!messages || !Array.isArray(messages)) {
       return new Response(
@@ -1279,14 +1488,14 @@ serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      
+
       if (msg.content.length > 50000) {
         return new Response(
           JSON.stringify({ error: "Message too long (max 50,000 characters per message)" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      
+
       if (!msg.role || !['user', 'assistant', 'system'].includes(msg.role)) {
         return new Response(
           JSON.stringify({ error: "Invalid message role: must be 'user', 'assistant', or 'system'" }),
@@ -1295,28 +1504,53 @@ serve(async (req) => {
       }
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Use service role client for DB operations (needed for cross-user data access)
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const userMessage = messages[messages.length - 1]?.content || "";
-    console.log(`Agentic RAG: "${userMessage.substring(0, 50)}..."`);
+    console.log(`Agentic RAG: "${userMessage.substring(0, 50)}..." | User: ${effectiveUserId}`);
+
+    // Fetch agent memory/awareness settings if agent_id provided
+    let memorySettings = { short_term_enabled: true, context_window_size: 10, long_term_enabled: false, retention_policy: 'keep_successful', learn_preferences: true };
+    let awarenessSettings = { awareness_level: 2, self_role_enabled: false, role_boundaries: null as string | null, state_awareness_enabled: false, state_context_source: 'project_status', proactive_reasoning: false, feedback_learning: false };
+
+    if (agentConfig?.agent_id) {
+      const { data: profileData } = await supabase
+        .from('ai_profiles')
+        .select('memory_settings, awareness_settings')
+        .eq('id', agentConfig.agent_id)
+        .single();
+
+      if (profileData) {
+        if (profileData.memory_settings && typeof profileData.memory_settings === 'object') {
+          memorySettings = { ...memorySettings, ...(profileData.memory_settings as Record<string, unknown>) } as typeof memorySettings;
+        }
+        if (profileData.awareness_settings && typeof profileData.awareness_settings === 'object') {
+          awarenessSettings = { ...awarenessSettings, ...(profileData.awareness_settings as Record<string, unknown>) } as typeof awarenessSettings;
+        }
+      }
+      console.log(`Agent settings loaded - Memory: STM=${memorySettings.short_term_enabled}, LTM=${memorySettings.long_term_enabled} | Awareness: Level=${awarenessSettings.awareness_level}`);
+    }
+
+    // Apply context window limiting based on short-term memory settings
+    const contextWindowSize = memorySettings.short_term_enabled ? memorySettings.context_window_size * 2 : 6; // *2 because each exchange = 2 messages
+    const windowedMessages = messages.slice(-Math.min(messages.length, contextWindowSize));
 
     // Step 1: Analyze query complexity for adaptive strategy
     let complexity: QueryComplexity = 'moderate';
     let strategy = 'standard_rag';
-    
+
     if (enable_adaptive_strategy) {
-      const analysis = await analyzeQueryComplexity(userMessage, messages.slice(0, -1), supabase, user_id);
+      const analysis = await analyzeQueryComplexity(userMessage, windowedMessages.slice(0, -1), supabase, effectiveUserId);
       complexity = analysis.complexity;
       strategy = analysis.strategy;
       console.log(`Adaptive Strategy: ${complexity} -> ${strategy}`);
     }
 
     // Step 2: Retrieve agent memory
-    let userMemory: any[] = [];
-    if (enable_memory && user_id) {
-      userMemory = await retrieveAgentMemory(user_id, agentConfig?.agent_id || null, supabase);
+    let userMemory: AgentMemoryItem[] = [];
+    if (enable_memory && effectiveUserId) {
+      userMemory = await retrieveAgentMemory(effectiveUserId, agentConfig?.agent_id || null, supabase);
       console.log(`Retrieved ${userMemory.length} memory items`);
     }
 
@@ -1332,7 +1566,7 @@ serve(async (req) => {
     // Step 4: Execute based on strategy
     let response = "";
     let citations: Citation[] = [];
-    let chunks: any[] = [];
+    let chunks: RetrievedChunk[] = [];
     let reasoningSteps: ReActStep[] = [];
 
     if (enable_agentic && (strategy === 'agentic_full' || complexity === 'complex')) {
@@ -1358,15 +1592,15 @@ serve(async (req) => {
       // Standard RAG for simpler queries
       console.log("Using Standard RAG");
       chunks = await executeKnowledgeSearch(userMessage, folder_ids, supabaseUrl, 5);
-      
+
       // Build context and generate response
-      const context = chunks.map((c, i) => 
+      const context = chunks.map((c, i) =>
         `[Source ${i + 1}: ${c.source_file}]\n${c.content}`
       ).join('\n\n---\n\n');
 
       let systemPrompt = agentConfig?.persona || "You are a helpful AI assistant.";
       if (agentConfig?.role_description) systemPrompt += `\nRole: ${agentConfig.role_description}`;
-      
+
       // Apply response rules from agent configuration
       if (agentConfig?.response_rules) {
         const rules = agentConfig.response_rules;
@@ -1392,25 +1626,45 @@ serve(async (req) => {
           systemPrompt += `\n- Summarize at end: Include a brief summary section at the end of your response`;
         }
       }
-      
+
       // Apply custom response template if provided
       const templateToUse = custom_response_template || agentConfig?.response_rules?.custom_response_template;
       if (templateToUse) {
         systemPrompt += `\n\n## RESPONSE TEMPLATE\nStructure your response following this template:\n${templateToUse}`;
       }
-      
+
+      // Inject Awareness Directives
+      if (awarenessSettings.self_role_enabled && awarenessSettings.role_boundaries) {
+        systemPrompt += `\n\n## SELF-ROLE AWARENESS\nYour role boundaries: ${awarenessSettings.role_boundaries}\nIf a request falls outside your area of expertise or defined boundaries, clearly state: "This falls outside my area of expertise." and suggest what kind of specialist should be consulted.`;
+      }
+
+      if (awarenessSettings.state_awareness_enabled) {
+        systemPrompt += `\n\n## STATE AWARENESS\nYou are context-aware. Before responding, consider the current state of the conversation and project. Adjust your response detail and urgency accordingly. Context source: ${awarenessSettings.state_context_source}.`;
+      }
+
+      if (awarenessSettings.proactive_reasoning) {
+        systemPrompt += `\n\n## PROACTIVE REASONING (Chain of Verification)\nBefore providing your answer, internally verify:\n1. Does this response align with the user's stated goal?\n2. Have I stayed within my role boundaries?\n3. Is my confidence level sufficient to provide this answer?\n4. Are there any gaps or assumptions I should flag?`;
+      }
+
+      if (awarenessSettings.awareness_level >= 4) {
+        systemPrompt += `\n\n## ADVANCED AUTONOMY\nYou are operating at high awareness level (${awarenessSettings.awareness_level}/5). You should:\n- Proactively identify gaps in the user's request\n- Suggest improvements and alternatives\n- Flag potential issues before they arise\n- Provide meta-commentary on your reasoning process`;
+      }
+
       systemPrompt += `\n\nUse the provided context to answer questions.\n\n=== CONTEXT ===\n${context}\n=== END CONTEXT ===`;
 
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-      if (LOVABLE_API_KEY) {
-        const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const { apiUrl, apiKey, model: aiModel } = getAIConfig();
+      if (!apiKey) {
+        response = "AI service is not configured. Please set LOVABLE_API_KEY, OPENAI_API_KEY, or GROQ_API_KEY in Supabase secrets.";
+        console.error("No AI provider API key found");
+      } else {
+        const aiResponse = await fetch(apiUrl!, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+            "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
+            model: aiModel,
             messages: [
               { role: "system", content: systemPrompt },
               ...messages.slice(-6)
@@ -1422,6 +1676,10 @@ serve(async (req) => {
         if (aiResponse.ok) {
           const data = await aiResponse.json();
           response = data.choices?.[0]?.message?.content || "";
+        } else {
+          const errorText = await aiResponse.text();
+          console.error("AI gateway error:", aiResponse.status, errorText);
+          response = "I encountered an error while reaching the AI service. Please try again later.";
         }
       }
 
@@ -1446,23 +1704,23 @@ serve(async (req) => {
     // Step 5: Response Validation and Re-work Loop
     let validationResult: ValidationScore = { overall_score: 100, structure_score: 100, rules_score: 100, issues: [], passed: true };
     let reworkAttempts = 0;
-    
+
     if (response && agentConfig?.response_rules) {
       validationResult = validateResponseCompliance(
-        response, 
-        agentConfig.response_rules, 
+        response,
+        agentConfig.response_rules,
         custom_response_template || agentConfig.response_rules.custom_response_template
       );
       console.log(`Initial validation score: ${validationResult.overall_score}`);
-      
+
       // Apply re-work loop if enabled and score is below threshold
       if (reworkConfig.enabled && reworkConfig.auto_correct && !validationResult.passed) {
         console.log(`Starting re-work loop (threshold: ${reworkConfig.minimum_score_threshold})`);
-        
+
         // Build a simplified system prompt for re-work
         let reworkSystemPrompt = agentConfig?.persona || "You are a helpful AI assistant.";
         if (agentConfig?.role_description) reworkSystemPrompt += `\nRole: ${agentConfig.role_description}`;
-        
+
         const reworkResult = await reworkResponse(
           response,
           validationResult,
@@ -1472,7 +1730,7 @@ serve(async (req) => {
           messages,
           reworkConfig.max_retries
         );
-        
+
         response = reworkResult.response;
         reworkAttempts = reworkResult.attempts;
         validationResult = reworkResult.finalScore;
@@ -1481,7 +1739,11 @@ serve(async (req) => {
     }
 
     // Step 6: Hallucination detection
-    let hallucinationCheck = { detected: false, details: [] as any[], confidence: 0.5 };
+    let hallucinationCheck: { detected: boolean; details: { claim: string; issue: string }[]; confidence: number } = {
+      detected: false,
+      details: [],
+      confidence: 0.5,
+    };
     if (enable_hallucination_check && chunks.length > 0) {
       hallucinationCheck = await detectHallucinations(response, chunks, userMessage);
       if (hallucinationCheck.detected) {
@@ -1489,10 +1751,10 @@ serve(async (req) => {
       }
     }
 
-    // Step 6: Update agent memory with learnings
-    if (enable_memory && user_id && response) {
+    // Step 7: Update agent memory with learnings
+    if (enable_memory && effectiveUserId && response) {
       extractMemoryFromConversation(
-        userMessage, response, user_id,
+        userMessage, response, effectiveUserId,
         agentConfig?.agent_id || null,
         workspace_id || null,
         conversation_id,
@@ -1500,8 +1762,31 @@ serve(async (req) => {
       ).catch(console.error); // Fire and forget
     }
 
+    // Step 7b: Archive successful experience for long-term memory
+    if (memorySettings.long_term_enabled && agentConfig?.agent_id && workspace_id && response.length > 100) {
+      const archiveConfidence = citations.length > 0 ? Math.min(0.95, 0.5 + citations.length * 0.1) : 0.4;
+      const shouldArchive = memorySettings.retention_policy === 'keep_all' ||
+        (memorySettings.retention_policy === 'keep_successful' && archiveConfidence > 0.6);
+
+      if (shouldArchive) {
+        supabase.from('agent_experience_archive').insert({
+          agent_id: agentConfig.agent_id,
+          workspace_id: workspace_id,
+          task_summary: `Q: ${userMessage.substring(0, 200)} | A: ${response.substring(0, 300)}`,
+          context_type: complexity === 'complex' ? 'analysis' : complexity === 'simple' ? 'lookup' : 'synthesis',
+          success_score: archiveConfidence,
+          learned_patterns: {
+            strategy_used: strategy,
+            citations_count: citations.length,
+            chunks_used: chunks.length,
+            reasoning_steps: reasoningSteps.length
+          }
+        }).then(() => console.log('Experience archived'), (err: unknown) => console.error(err));
+      }
+    }
+
     // Step 7: Log self-evaluation
-    const confidence = citations.length > 0 
+    const confidence = citations.length > 0
       ? Math.min(0.95, 0.5 + citations.length * 0.1)
       : 0.4;
 
@@ -1592,9 +1877,9 @@ serve(async (req) => {
   } catch (error) {
     console.error("Agentic RAG error:", error);
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         error: error instanceof Error ? error.message : "Unknown error",
-        success: false 
+        success: false
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

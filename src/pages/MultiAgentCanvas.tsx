@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Bot, Play, Plus, Trash2, Zap, Save, Settings2, ArrowLeft, MessageCircle, Store, Clock, Undo2, Redo2, Printer, Sparkles } from 'lucide-react';
+import { Bot, Play, Plus, Trash2, Zap, Save, Settings2, ArrowLeft, MessageCircle, Store, Clock, Undo2, Redo2, Printer, Brain, Eye } from 'lucide-react';
 import { usePrintCanvas } from '@/hooks/usePrintCanvas';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { useToast } from '@/hooks/use-toast';
@@ -42,6 +43,9 @@ interface AgentNodeData {
   model: string;
   role?: string;
   agentId: string;
+  memoryEnabled?: boolean;
+  awarenessEnabled?: boolean;
+  awarenessLevel?: number;
   inputs?: {
     fromKnowledgeBase: string[];
     fromAgents: string[];
@@ -52,6 +56,13 @@ interface AgentNodeData {
   };
 }
 
+interface WorkflowImportData {
+  name?: string;
+  nodes?: unknown;
+  edges?: unknown;
+}
+
+// Model color configurations
 const modelColors: Record<string, { gradient: string; glow: string; text: string }> = {
   core_analyst: { gradient: 'from-blue-500 to-cyan-500', glow: 'shadow-blue-500/30', text: 'text-blue-500' },
   core_reviewer: { gradient: 'from-amber-500 to-orange-500', glow: 'shadow-amber-500/30', text: 'text-amber-500' },
@@ -62,6 +73,104 @@ const AgentNode: React.FC<NodeProps> = ({ data, selected }) => {
   const nodeData = data as unknown as AgentNodeData;
   const colors = modelColors[nodeData.model] || modelColors.core_analyst;
   
+
+  return (
+    <div
+      className={`relative bg-card/90 backdrop-blur-md border-2 rounded-2xl p-5 min-w-[240px] shadow-xl transition-all duration-300 cursor-pointer group ${
+        selected 
+          ? `border-primary ${colors.glow} shadow-2xl scale-105` 
+          : 'border-border/50 hover:border-primary/50 hover:shadow-lg hover:-translate-y-1'
+      }`}
+    >
+      {/* Glowing background effect */}
+      <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${colors.gradient} opacity-5 group-hover:opacity-10 transition-opacity`} />
+      
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!w-4 !h-4 !bg-gradient-to-r !from-primary !to-primary/80 !border-2 !border-background !rounded-full !shadow-lg"
+      />
+      
+      {/* Header with Icon */}
+      <div className="flex items-center gap-3 mb-3 relative">
+        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${colors.gradient} flex items-center justify-center shadow-lg ring-4 ring-background`}>
+          <Bot className="h-6 w-6 text-white" />
+        </div>
+        <div className="flex-1">
+          <p className="font-semibold text-base">{nodeData.label}</p>
+          <Badge className={`text-xs bg-gradient-to-r ${colors.gradient} text-white border-0 shadow-sm`}>
+            {nodeData.model?.replace('core_', '')}
+          </Badge>
+        </div>
+      </div>
+      
+      {/* Role Description */}
+      {nodeData.role && (
+        <p className="text-xs text-muted-foreground line-clamp-2 mb-3 pl-1 border-l-2 border-primary/30">{nodeData.role}</p>
+      )}
+      
+      {/* I/O Stats + Intelligence Indicators */}
+      <div className="flex gap-2 text-xs flex-wrap">
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-muted/80">
+          <div className="w-2 h-2 rounded-full bg-green-500" />
+          <span className="font-medium">{inputCount} in</span>
+        </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-muted/80">
+          <div className="w-2 h-2 rounded-full bg-blue-500" />
+          <span className="font-medium">{outputCount} out</span>
+        </div>
+        {nodeData.memoryEnabled && (
+          <div className="flex items-center gap-1 px-2 py-1.5 rounded-full bg-primary/10" title="Memory Enabled">
+            <Brain className="h-3 w-3 text-primary" />
+          </div>
+        )}
+        {nodeData.awarenessEnabled && (
+          <div className="flex items-center gap-1 px-2 py-1.5 rounded-full bg-primary/10" title={`Awareness Level ${nodeData.awarenessLevel || 2}`}>
+            <Eye className="h-3 w-3 text-primary" />
+          </div>
+        )}
+      </div>
+      
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!w-4 !h-4 !bg-gradient-to-r !from-primary/80 !to-primary !border-2 !border-background !rounded-full !shadow-lg"
+      />
+    </div>
+  );
+};
+
+// Modern Start Node
+const StartNode: React.FC<NodeProps> = ({ selected }) => {
+  return (
+    <div
+      className={`relative bg-gradient-to-br from-green-500/20 to-emerald-500/10 backdrop-blur-sm border-2 border-green-500/50 rounded-2xl p-5 shadow-xl transition-all duration-300 ${
+        selected ? 'shadow-green-500/40 scale-105 border-green-500' : 'hover:shadow-green-500/20 hover:-translate-y-1'
+      }`}
+    >
+      {/* Glow effect */}
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-500 opacity-10 blur-xl" />
+      
+      <div className="relative flex items-center gap-3">
+        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-green-500/30 ring-4 ring-green-500/20">
+          <Zap className="h-6 w-6 text-white" />
+        </div>
+        <div>
+          <span className="font-bold text-green-500 text-lg">Start</span>
+          <p className="text-xs text-muted-foreground">Workflow Entry</p>
+        </div>
+      </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!w-4 !h-4 !bg-gradient-to-r !from-green-500 !to-emerald-500 !border-2 !border-background !rounded-full !shadow-lg"
+      />
+    </div>
+  );
+};
+
+// Modern End Node
+const EndNode: React.FC<NodeProps> = ({ selected }) => {
   return (
     <div className={`relative bg-card/90 backdrop-blur-md border-2 rounded-2xl p-5 min-w-[240px] shadow-xl transition-all duration-300 cursor-pointer group ${selected ? `border-primary ${colors.glow} shadow-2xl scale-105` : 'border-border/50 hover:border-primary/50'}`}>
       <Handle type="target" position={Position.Left} className="!w-4 !h-4 !bg-primary !border-2 !border-background" />
@@ -86,6 +195,437 @@ const MultiAgentCanvas: React.FC = () => {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setNodes, setEdges } = useCanvasStore();
   const { currentWorkspace } = useWorkspace();
   const { toast } = useToast();
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedAgentToAdd, setSelectedAgentToAdd] = useState<string>('');
+  const [configName, setConfigName] = useState('New Multi-Agent Config');
+  const [configDescription, setConfigDescription] = useState('');
+  const [selectedNodeForConfig, setSelectedNodeForConfig] = useState<Node | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [showEditor, setShowEditor] = useState(!!configId);
+
+  // Print/PDF functionality
+  const { printCanvas, exportAsPDF } = usePrintCanvas();
+
+  // Undo/Redo functionality
+  const { undo, redo, canUndo, canRedo, takeSnapshot, isUndoRedoAction } = useUndoRedo(
+    nodes,
+    edges,
+    setNodes,
+    setEdges
+  );
+
+  // Track previous nodes/edges for change detection
+  const prevNodesRef = useRef<string>('');
+  const prevEdgesRef = useRef<string>('');
+
+  // Detect meaningful changes and take snapshots
+  useEffect(() => {
+    if (isUndoRedoAction) return;
+
+    const nodesJson = JSON.stringify(nodes.map(n => ({ id: n.id, position: n.position, data: n.data })));
+    const edgesJson = JSON.stringify(edges);
+
+    const nodesChanged = nodesJson !== prevNodesRef.current;
+    const edgesChanged = edgesJson !== prevEdgesRef.current;
+
+    if ((nodesChanged || edgesChanged) && prevNodesRef.current !== '') {
+      takeSnapshot();
+    }
+
+    prevNodesRef.current = nodesJson;
+    prevEdgesRef.current = edgesJson;
+  }, [nodes, edges, takeSnapshot, isUndoRedoAction]);
+  const [currentUserId, setCurrentUserId] = useState<string>();
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>();
+
+  // Get current user
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        setCurrentUserId(user.id);
+        setCurrentUserEmail(user.email);
+      }
+    });
+  }, []);
+
+  // Real-time collaboration
+  const { collaborators, broadcastCursor, isConnected } = useRealtimeCollaboration(
+    configId,
+    currentUserId,
+    currentUserEmail
+  );
+
+  // Handle import
+  const handleImport = (data: WorkflowImportData) => {
+    if (Array.isArray(data.nodes)) {
+      setNodes(data.nodes as Node[]);
+    }
+    if (Array.isArray(data.edges)) {
+      setEdges(data.edges as Edge[]);
+    }
+    if (typeof data.name === 'string') {
+      setConfigName(data.name);
+    }
+    toast({ title: 'Imported', description: 'Workflow imported successfully' });
+  };
+
+  // Fetch agents
+  const { data: agents } = useQuery({
+    queryKey: ['agents'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('ai_profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Fetch folders for input config
+  const { data: folders = [] } = useQuery({
+    queryKey: ['folders', currentWorkspace?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('knowledge_folders')
+        .select('id, name, folder_type')
+        .order('name');
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Load existing config if editing
+  const { data: existingConfig } = useQuery({
+    queryKey: ['multi-agent-config', configId],
+    queryFn: async () => {
+      if (!configId) return null;
+      const { data, error } = await supabase
+        .from('multi_agent_configs')
+        .select('*')
+        .eq('id', configId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!configId,
+  });
+
+  // Sync showEditor with configId
+  useEffect(() => {
+    if (configId) {
+      setShowEditor(true);
+    }
+  }, [configId]);
+
+  // Load existing config data
+  useEffect(() => {
+    if (existingConfig) {
+      setConfigName(existingConfig.name);
+      setConfigDescription(existingConfig.description || '');
+      
+      const canvasData = existingConfig.canvas_data as { nodes?: Node[]; edges?: Edge[] } | null;
+      if (canvasData?.nodes) {
+        setNodes(canvasData.nodes);
+      }
+      if (canvasData?.edges) {
+        setEdges(canvasData.edges);
+      }
+    }
+  }, [existingConfig, setNodes, setEdges]);
+
+  // Reset to initial state when creating new workflow
+  useEffect(() => {
+    if (!configId && showEditor) {
+      setNodes(initialNodes);
+      setEdges([]);
+      setConfigName('New Multi-Agent Config');
+      setConfigDescription('');
+    }
+  }, [configId, showEditor, setNodes, setEdges]);
+
+  const onConnect = useCallback(
+    (params: Connection) => {
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...params,
+            animated: true,
+            style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 },
+          },
+          eds
+        )
+      );
+    },
+    [setEdges]
+  );
+
+  const addAgentNode = () => {
+    if (!selectedAgentToAdd) return;
+
+    const agent = agents?.find((a) => a.id === selectedAgentToAdd);
+    if (!agent) return;
+
+    // Map agent's allowed_folders to inputs.fromKnowledgeBase
+    const allowedFolders = agent.allowed_folders || [];
+
+    const newNode: Node = {
+      id: `agent-${Date.now()}`,
+      type: 'agent',
+      position: {
+        x: 300 + Math.random() * 100,
+        y: 100 + Math.random() * 200,
+      },
+      data: {
+        label: agent.display_name,
+        model: agent.core_model,
+        role: agent.role_description,
+        agentId: agent.id,
+        memoryEnabled: !!(agent.memory_settings as Record<string, unknown>)?.short_term_enabled || !!(agent.memory_settings as Record<string, unknown>)?.long_term_enabled,
+        awarenessEnabled: !!(agent.awareness_settings as Record<string, unknown>)?.self_role_enabled || !!(agent.awareness_settings as Record<string, unknown>)?.proactive_reasoning,
+        awarenessLevel: ((agent.awareness_settings as Record<string, unknown>)?.awareness_level as number) || 2,
+        inputs: { fromKnowledgeBase: allowedFolders, fromAgents: [] },
+        outputs: { toKnowledgeBase: false, toAgents: [] },
+      },
+    };
+
+    setNodes((nds) => [...nds, newNode]);
+    setSelectedAgentToAdd('');
+    toast({
+      title: 'Agent Added',
+      description: `${agent.display_name} added to canvas. Click on it in sidebar or double-click to configure.`,
+    });
+  };
+
+  const deleteSelectedNodes = () => {
+    setNodes((nds) =>
+      nds.filter((node) => !node.selected || node.type === 'start' || node.type === 'end')
+    );
+    setEdges((eds) =>
+      eds.filter((edge) => {
+        const sourceNode = nodes.find((n) => n.id === edge.source);
+        const targetNode = nodes.find((n) => n.id === edge.target);
+        return (
+          (!sourceNode?.selected || sourceNode.type === 'start' || sourceNode.type === 'end') &&
+          (!targetNode?.selected || targetNode.type === 'start' || targetNode.type === 'end')
+        );
+      })
+    );
+  };
+
+  const handleSave = async () => {
+    if (!currentWorkspace) {
+      toast({
+        title: 'No Workspace',
+        description: 'Please select or create a workspace first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSaving(true);
+    const { data: user } = await supabase.auth.getUser();
+    if (!user.user) {
+      toast({
+        title: 'Not Signed In',
+        description: 'Please sign in to save configurations',
+        variant: 'destructive',
+      });
+      setSaving(false);
+      return;
+    }
+    
+    const configData = {
+      name: configName,
+      description: configDescription,
+      workspace_id: currentWorkspace.id,
+      canvas_data: JSON.parse(JSON.stringify({ nodes, edges })),
+      agent_nodes: JSON.parse(JSON.stringify(nodes.filter((n) => n.type === 'agent').map((n) => n.data))),
+      connections: JSON.parse(JSON.stringify(edges)),
+      created_by: user.user.id,
+    };
+
+    let error = null;
+
+    if (configId) {
+      const { error: updateError } = await supabase
+        .from('multi_agent_configs')
+        .update(configData)
+        .eq('id', configId);
+      error = updateError;
+    } else {
+      const { error: insertError } = await supabase
+        .from('multi_agent_configs')
+        .insert(configData);
+      error = insertError;
+    }
+
+    setSaving(false);
+
+    if (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to save configuration',
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Saved',
+        description: 'Configuration saved successfully',
+      });
+      queryClient.invalidateQueries({ queryKey: ['multi-agent-configs'] });
+    }
+  };
+
+  const handleExport = async () => {
+    const agentNodes = nodes.filter((n) => n.type === 'agent');
+    if (agentNodes.length === 0) {
+      toast({
+        title: 'No Agents',
+        description: 'Add at least one agent to export',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const exportData = {
+      name: configName,
+      description: configDescription,
+      nodes,
+      edges,
+      agents: agentNodes.map((n) => n.data),
+      exportedAt: new Date().toISOString(),
+    };
+
+    // Save to exported_configs if we have a configId
+    if (configId) {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        toast({
+          title: 'Not Signed In',
+          description: 'Please sign in to export configurations',
+          variant: 'destructive',
+        });
+        return;
+      }
+      await supabase.from('exported_configs').insert({
+        multi_agent_config_id: configId,
+        config_data: JSON.parse(JSON.stringify(exportData)),
+        exported_by: user.user.id,
+      });
+    }
+
+    // Download JSON file
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${configName.replace(/\s+/g, '_')}_config.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: 'Exported',
+      description: 'Configuration exported successfully',
+    });
+  };
+
+  const handleDelete = async () => {
+    if (!configId) return;
+
+    const { error } = await supabase.from('multi_agent_configs').delete().eq('id', configId);
+    if (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to delete configuration',
+        variant: 'destructive',
+      });
+    } else {
+      toast({
+        title: 'Deleted',
+        description: 'Configuration deleted',
+      });
+      navigate('/multi-agent-canvas');
+      queryClient.invalidateQueries({ queryKey: ['multi-agent-configs'] });
+    }
+  };
+
+  const runWorkflow = () => {
+    const agentNodes = nodes.filter((n) => n.type === 'agent');
+    if (agentNodes.length === 0) {
+      toast({
+        title: 'No Agents',
+        description: 'Add at least one agent to the workflow',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setChatOpen(true);
+  };
+
+  // Get agents for chat panel in order
+  const chatAgents = useMemo(() => {
+    return nodes
+      .filter((n) => n.type === 'agent')
+      .map((n) => {
+        const data = n.data as unknown as AgentNodeData;
+        return {
+          id: n.id,
+          label: data.label,
+          model: data.model,
+          agentId: data.agentId,
+        };
+      });
+  }, [nodes]);
+
+  const availableAgents = useMemo(() => {
+    const usedAgentIds = nodes
+      .filter((n) => n.type === 'agent')
+      .map((n) => (n.data as unknown as AgentNodeData).agentId);
+    return agents?.filter((a) => !usedAgentIds.includes(a.id)) || [];
+  }, [agents, nodes]);
+
+  const handleNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      if (node.type === 'agent') {
+        setSelectedNodeForConfig(node);
+      }
+    },
+    []
+  );
+
+  const handleUpdateNodeConfig = (updates: Partial<AgentNodeData>) => {
+    if (!selectedNodeForConfig) return;
+
+    setNodes((nds) =>
+      nds.map((node) =>
+        node.id === selectedNodeForConfig.id
+          ? { ...node, data: { ...node.data, ...updates } }
+          : node
+      )
+    );
+  };
+
+  const agentNodesForConfig = nodes
+    .filter((n) => n.type === 'agent')
+    .map((n) => ({ id: n.id, data: n.data as unknown as AgentNodeData }));
+
+  // Show workflow selector if no configId and not in editor mode
+  if (!configId && !showEditor) {
+    return (
+      <WorkflowSelector 
+        onCreateNew={() => setShowEditor(true)} 
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen bg-background overflow-hidden">

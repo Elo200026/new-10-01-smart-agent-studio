@@ -13,9 +13,41 @@ interface Collaborator {
 interface CollaboratorPresence {
   collaborators: Collaborator[];
   broadcastCursor: (position: { x: number; y: number }) => void;
-  broadcastNodeChange: (nodeId: string, change: any) => void;
+  broadcastNodeChange: (nodeId: string, change: Record<string, unknown>) => void;
   isConnected: boolean;
 }
+
+interface PresencePayload {
+  email?: string;
+  cursor?: { x: number; y: number };
+  color?: string;
+  lastActive?: string;
+}
+
+interface CursorBroadcastPayload {
+  userId: string;
+  position: { x: number; y: number };
+}
+
+interface NodeChangeBroadcastPayload {
+  userId: string;
+  nodeId: string;
+  change: Record<string, unknown>;
+  timestamp: number;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isCursorBroadcastPayload = (value: unknown): value is CursorBroadcastPayload => {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.userId === 'string' &&
+    isRecord(value.position) &&
+    typeof value.position.x === 'number' &&
+    typeof value.position.y === 'number'
+  );
+};
 
 const COLORS = [
   '#8B5CF6', // violet
@@ -58,7 +90,7 @@ export function useRealtimeCollaboration(
 
       Object.entries(state).forEach(([key, presences]) => {
         if (key !== userId && Array.isArray(presences) && presences.length > 0) {
-          const presence = presences[0] as any;
+          const presence = presences[0] as PresencePayload;
           presentUsers.push({
             id: key,
             email: presence.email || 'Unknown',
@@ -74,7 +106,7 @@ export function useRealtimeCollaboration(
 
     // Handle cursor broadcasts
     newChannel.on('broadcast', { event: 'cursor' }, ({ payload }) => {
-      if (payload.userId !== userId) {
+      if (isCursorBroadcastPayload(payload) && payload.userId !== userId) {
         setCollaborators((prev) =>
           prev.map((c) =>
             c.id === payload.userId
@@ -87,10 +119,14 @@ export function useRealtimeCollaboration(
 
     // Handle node change broadcasts
     newChannel.on('broadcast', { event: 'node_change' }, ({ payload }) => {
-      // This will be handled by the parent component
-      window.dispatchEvent(
-        new CustomEvent('workflow-node-change', { detail: payload })
-      );
+      if (!isRecord(payload)) return;
+      const detail: NodeChangeBroadcastPayload = {
+        userId: typeof payload.userId === 'string' ? payload.userId : '',
+        nodeId: typeof payload.nodeId === 'string' ? payload.nodeId : '',
+        change: isRecord(payload.change) ? payload.change : {},
+        timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : Date.now(),
+      };
+      window.dispatchEvent(new CustomEvent('workflow-node-change', { detail }));
     });
 
     // Subscribe to channel
@@ -128,7 +164,7 @@ export function useRealtimeCollaboration(
   );
 
   const broadcastNodeChange = useCallback(
-    (nodeId: string, change: any) => {
+    (nodeId: string, change: Record<string, unknown>) => {
       if (channel && isConnected && userId) {
         channel.send({
           type: 'broadcast',

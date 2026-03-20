@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Send, Bot, User, Loader2, X, Maximize2, Minimize2, Lightbulb } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { getSupabaseUrl } from '@/lib/env';
 
 interface Message {
   id: string;
@@ -36,6 +37,9 @@ interface AgentChatPanelProps {
   workspaceId?: string;
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
 export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
   agents,
   isOpen,
@@ -49,6 +53,12 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const getFunctionErrorMessage = (status: number, fallback: string) => {
+    if (status === 401) return 'Please sign in to run workflows.';
+    if (status === 403) return 'You do not have permission to run this workflow.';
+    if (status >= 500) return 'The server encountered an error. Please try again soon.';
+    return fallback;
+  };
 
   // Generate dynamic suggested prompts based on agents in the workflow
   const suggestedPrompts = useMemo<SuggestedPrompt[]>(() => {
@@ -135,12 +145,18 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
       // Get session for authentication
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
-        throw new Error('Not authenticated');
+        toast({
+          title: 'Authentication Required',
+          description: 'Please sign in to run workflows',
+          variant: 'destructive',
+        });
+        setIsLoading(false);
+        return;
       }
 
       // Call the run-workflow edge function
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/run-workflow`,
+        `${getSupabaseUrl()}/functions/v1/run-workflow`,
         {
           method: 'POST',
           headers: {
@@ -158,21 +174,24 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Request failed: ${response.status}`);
+        const fallbackMessage = errorData.error || `Request failed: ${response.status}`;
+        throw new Error(getFunctionErrorMessage(response.status, fallbackMessage));
       }
 
       const result = await response.json();
+      const resultData = isRecord(result) ? result : {};
+      const outputData = isRecord(resultData.outputData) ? resultData.outputData : null;
 
       // Process response from each agent
-      if (result.outputData) {
+      if (outputData) {
         for (const agent of agents) {
-          const agentOutput = result.outputData[agent.agentId];
-          if (agentOutput) {
+          const agentOutput = outputData[agent.agentId];
+          if (isRecord(agentOutput)) {
             const agentResponse: Message = {
               id: crypto.randomUUID(),
               role: 'assistant',
-              content: agentOutput.response || 'No response generated',
-              agentName: agentOutput.agent || agent.label,
+              content: typeof agentOutput.response === 'string' ? agentOutput.response : 'No response generated',
+              agentName: typeof agentOutput.agent === 'string' ? agentOutput.agent : agent.label,
               timestamp: new Date(),
             };
             setMessages((prev) => [...prev, agentResponse]);
@@ -181,9 +200,18 @@ export const AgentChatPanel: React.FC<AgentChatPanelProps> = ({
       }
 
       // If no output, show logs summary
-      if (!result.outputData || Object.keys(result.outputData).length === 0) {
-        const logs = result.executionLogs || [];
-        const summary = logs.map((log: any) => `[${log.type}] ${log.agent || ''}: ${log.message}`).join('\n');
+      if (!outputData || Object.keys(outputData).length === 0) {
+        const logs = Array.isArray(resultData.executionLogs) ? resultData.executionLogs : [];
+        const summary = logs
+          .map((log) => {
+            if (!isRecord(log)) return '';
+            const type = typeof log.type === 'string' ? log.type : 'log';
+            const agentName = typeof log.agent === 'string' ? log.agent : '';
+            const message = typeof log.message === 'string' ? log.message : '';
+            return `[${type}] ${agentName}: ${message}`.trim();
+          })
+          .filter(Boolean)
+          .join('\n');
         
         setMessages((prev) => [
           ...prev,

@@ -172,7 +172,13 @@ export const UploadDocumentDialog: React.FC<UploadDocumentDialogProps> = ({
       setStatusMessage(needsOCR ? 'Running AI extraction (OCR)...' : 'Processing document...');
 
       // Step 3: Process document into chunks via edge function
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Please sign in to upload documents');
+      }
+
       const { data, error: processError } = await supabase.functions.invoke('process-document', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
         body: {
           fileName: selectedFile.name,
           folderId: folderId || null,
@@ -182,7 +188,13 @@ export const UploadDocumentDialog: React.FC<UploadDocumentDialogProps> = ({
         },
       });
 
-      if (processError) throw processError;
+      if (processError) {
+        const status = processError.status ?? 0;
+        if (status === 401) throw new Error('Please sign in to upload documents');
+        if (status === 403) throw new Error('You do not have permission to upload documents');
+        if (status >= 500) throw new Error('The server encountered an error. Please try again soon.');
+        throw processError;
+      }
       setProgress(85);
       setStatusMessage('Saving to knowledge base...');
 
@@ -219,11 +231,11 @@ export const UploadDocumentDialog: React.FC<UploadDocumentDialogProps> = ({
         onOpenChange(false);
       }, 1500);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Upload error:', error);
       toast({ 
         title: 'Error', 
-        description: error.message || 'Failed to process document', 
+        description: error instanceof Error ? error.message : 'Failed to process document', 
         variant: 'destructive' 
       });
     } finally {
