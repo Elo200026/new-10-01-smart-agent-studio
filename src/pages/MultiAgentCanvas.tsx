@@ -665,11 +665,12 @@ const MultiAgentCanvas: React.FC = () => {
         {selectedNodeForConfig && (
           <div className="absolute top-4 right-4 w-80 max-h-[calc(100vh-8rem)] overflow-auto z-10">
             <AgentNodeConfig
-              node={selectedNodeForConfig}
+              open={!!selectedNodeForConfig}
+              onOpenChange={(open) => { if (!open) setSelectedNodeForConfig(null); }}
+              nodeData={(selectedNodeForConfig.data as unknown as AgentNodeData)}
               allNodes={agentNodesForConfig}
               folders={folders}
-              onUpdate={handleUpdateNodeConfig}
-              onClose={() => setSelectedNodeForConfig(null)}
+              onUpdateNode={handleUpdateNodeConfig}
             />
           </div>
         )}
@@ -678,9 +679,10 @@ const MultiAgentCanvas: React.FC = () => {
         {chatOpen && (
           <AgentChatPanel
             agents={chatAgents}
-            configId={configId}
-            workspaceId={currentWorkspace?.id}
+            isOpen={chatOpen}
             onClose={() => setChatOpen(false)}
+            workflowId={configId}
+            workspaceId={currentWorkspace?.id}
           />
         )}
       </div>
@@ -688,10 +690,9 @@ const MultiAgentCanvas: React.FC = () => {
       {/* Import/Export */}
       <WorkflowImportExport
         configName={configName}
-        nodes={nodes}
-        edges={edges}
+        nodes={nodes as never[]}
+        edges={edges as never[]}
         onImport={handleImport}
-        onExport={handleExport}
       />
 
       {/* Publish dialog */}
@@ -699,9 +700,12 @@ const MultiAgentCanvas: React.FC = () => {
         <PublishToMarketplaceDialog
           open={publishDialogOpen}
           onOpenChange={setPublishDialogOpen}
-          configId={configId}
-          configName={configName}
-          workspaceId={currentWorkspace.id}
+          itemType="multi_agent"
+          configData={JSON.parse(JSON.stringify({ nodes, edges, name: configName }))}
+          canvasData={JSON.parse(JSON.stringify({ nodes, edges }))}
+          agentCount={nodes.filter(n => n.type === 'agent').length}
+          defaultName={configName}
+          defaultDescription={configDescription}
         />
       )}
 
