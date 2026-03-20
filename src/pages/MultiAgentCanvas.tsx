@@ -227,16 +227,14 @@ const MultiAgentCanvas: React.FC = () => {
   const { printCanvas } = usePrintCanvas();
 
   const onNodesChange = useCallback(
-    (changes: Parameters<typeof import('@xyflow/react').applyNodeChanges>[0]) => {
-      const { applyNodeChanges } = require('@xyflow/react');
+    (changes: NodeChange[]) => {
       setNodes((nds) => applyNodeChanges(changes, nds));
     },
     []
   );
 
   const onEdgesChange = useCallback(
-    (changes: Parameters<typeof import('@xyflow/react').applyEdgeChanges>[0]) => {
-      const { applyEdgeChanges } = require('@xyflow/react');
+    (changes: EdgeChange[]) => {
       setEdges((eds) => applyEdgeChanges(changes, eds));
     },
     []
