@@ -248,11 +248,11 @@ export const Team: React.FC = () => {
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
                           <span className="text-sm font-medium text-primary">
-                            {member.email.charAt(0).toUpperCase()}
+                            {(member.user_id || member.role || '?').charAt(0).toUpperCase()}
                           </span>
                         </div>
                         <div>
-                          <p className="font-medium text-sm">{member.email}</p>
+                          <p className="font-medium text-sm">{member.user_id ? `Member (${member.role})` : 'Pending invite'}</p>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Clock className="h-3 w-3" />
                             <span>
