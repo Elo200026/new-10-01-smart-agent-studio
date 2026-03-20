@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Heart, Code2, Shield, FileText, HelpCircle, Menu, X } from 'lucide-react';
 import { useFloatingOnboarding, FloatingTooltip } from '@/components/onboarding/FloatingTooltip';
+import { OnboardingTour } from '@/components/onboarding/OnboardingTour';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
 
@@ -12,6 +13,7 @@ interface MainLayoutProps {
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const onboarding = useFloatingOnboarding();
+  
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -61,9 +63,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           </div>
         </div>
       </footer>
-
       {/* Floating Onboarding Tooltip */}
       <FloatingTooltip {...onboarding} />
+      {/* Interactive Onboarding Tour */}
+      <OnboardingTour />
     </div>
   );
 };

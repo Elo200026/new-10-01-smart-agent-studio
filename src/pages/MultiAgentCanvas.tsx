@@ -5,9 +5,6 @@ import {
   Controls,
   Background,
   MiniMap,
-  useNodesState,
-  useEdgesState,
-  addEdge,
   Connection,
   Edge,
   Node,
@@ -25,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { Bot, Play, Plus, Trash2, Zap, Save, Settings2, ArrowLeft, MessageCircle, Store, Clock, Undo2, Redo2, Printer, Sparkles } from 'lucide-react';
 import { Bot, Play, Plus, Trash2, Zap, Save, Settings2, ArrowLeft, MessageCircle, Store, Clock, Undo2, Redo2, Printer, Brain, Eye } from 'lucide-react';
 import { usePrintCanvas } from '@/hooks/usePrintCanvas';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
@@ -38,6 +36,7 @@ import { WorkflowSelector } from '@/components/canvas/WorkflowSelector';
 import { WorkflowImportExport } from '@/components/canvas/WorkflowImportExport';
 import { CollaboratorCursors, CollaboratorAvatars } from '@/components/canvas/CollaboratorCursors';
 import { useRealtimeCollaboration } from '@/hooks/useRealtimeCollaboration';
+import { useCanvasStore } from '@/store/useCanvasStore';
 
 interface AgentNodeData {
   label: string;
@@ -70,24 +69,10 @@ const modelColors: Record<string, { gradient: string; glow: string; text: string
   core_synthesizer: { gradient: 'from-purple-500 to-pink-500', glow: 'shadow-purple-500/30', text: 'text-purple-500' },
 };
 
-// Custom Agent Node Component with Modern Styling
 const AgentNode: React.FC<NodeProps> = ({ data, selected }) => {
   const nodeData = data as unknown as AgentNodeData;
-  
-  const fromKB = Array.isArray(nodeData.inputs?.fromKnowledgeBase) 
-    ? nodeData.inputs.fromKnowledgeBase 
-    : [];
-  const fromAgents = Array.isArray(nodeData.inputs?.fromAgents) 
-    ? nodeData.inputs.fromAgents 
-    : [];
-  const toAgents = Array.isArray(nodeData.outputs?.toAgents) 
-    ? nodeData.outputs.toAgents 
-    : [];
-  
-  const inputCount = fromKB.length + fromAgents.length;
-  const outputCount = (nodeData.outputs?.toKnowledgeBase ? 1 : 0) + toAgents.length;
-
   const colors = modelColors[nodeData.model] || modelColors.core_analyst;
+  
 
   return (
     <div
@@ -187,59 +172,29 @@ const StartNode: React.FC<NodeProps> = ({ selected }) => {
 // Modern End Node
 const EndNode: React.FC<NodeProps> = ({ selected }) => {
   return (
-    <div
-      className={`relative bg-gradient-to-br from-red-500/20 to-rose-500/10 backdrop-blur-sm border-2 border-red-500/50 rounded-2xl p-5 shadow-xl transition-all duration-300 ${
-        selected ? 'shadow-red-500/40 scale-105 border-red-500' : 'hover:shadow-red-500/20 hover:-translate-y-1'
-      }`}
-    >
-      {/* Glow effect */}
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-red-500 to-rose-500 opacity-10 blur-xl" />
-      
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="!w-4 !h-4 !bg-gradient-to-r !from-red-500 !to-rose-500 !border-2 !border-background !rounded-full !shadow-lg"
-      />
-      <div className="relative flex items-center gap-3">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-rose-500 flex items-center justify-center shadow-lg shadow-red-500/30 ring-4 ring-red-500/20">
-          <div className="w-4 h-4 rounded-sm bg-white" />
+    <div className={`relative bg-card/90 backdrop-blur-md border-2 rounded-2xl p-5 min-w-[240px] shadow-xl transition-all duration-300 cursor-pointer group ${selected ? `border-primary ${colors.glow} shadow-2xl scale-105` : 'border-border/50 hover:border-primary/50'}`}>
+      <Handle type="target" position={Position.Left} className="!w-4 !h-4 !bg-primary !border-2 !border-background" />
+      <div className="flex items-center gap-3 mb-3">
+        <div className={`p-2 rounded-xl bg-gradient-to-br ${colors.gradient} text-white shadow-lg`}>
+          <Bot className="h-5 w-5" />
         </div>
         <div>
-          <span className="font-bold text-red-500 text-lg">End</span>
-          <p className="text-xs text-muted-foreground">Workflow Exit</p>
+          <h3 className="font-bold text-sm leading-tight">{nodeData.label}</h3>
+          <p className={`text-[10px] font-semibold uppercase tracking-wider ${colors.text}`}>{nodeData.model.replace('core_', '')}</p>
         </div>
       </div>
+      <Handle type="source" position={Position.Right} className="!w-4 !h-4 !bg-primary !border-2 !border-background" />
     </div>
   );
 };
 
-const nodeTypes = {
-  agent: AgentNode,
-  start: StartNode,
-  end: EndNode,
-};
+const nodeTypes = { agent: AgentNode };
 
-const initialNodes: Node[] = [
-  {
-    id: 'start',
-    type: 'start',
-    position: { x: 50, y: 200 },
-    data: { label: 'Start' },
-  },
-  {
-    id: 'end',
-    type: 'end',
-    position: { x: 700, y: 200 },
-    data: { label: 'End' },
-  },
-];
-
-export const MultiAgentCanvas: React.FC = () => {
-  const { id: configId } = useParams();
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+const MultiAgentCanvas: React.FC = () => {
+  const { configId } = useParams();
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setNodes, setEdges } = useCanvasStore();
   const { currentWorkspace } = useWorkspace();
+  const { toast } = useToast();
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -673,258 +628,24 @@ export const MultiAgentCanvas: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4 h-[calc(100vh-8rem)]">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => {
-              if (configId) {
-                navigate('/multi-agent-canvas');
-              } else {
-                setShowEditor(false);
-              }
-            }}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Multi-Agent Canvas</h1>
-            <p className="text-muted-foreground text-sm lg:text-base mt-1 hidden sm:block">
-              Build and configure multi-agent workflows
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={undo} disabled={!canUndo} className="gap-1.5" title="Undo (Ctrl+Z)">
-            <Undo2 className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={redo} disabled={!canRedo} className="gap-1.5" title="Redo (Ctrl+Y)">
-            <Redo2 className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={deleteSelectedNodes} className="gap-1.5">
-            <Trash2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Delete</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleSave} disabled={saving} className="gap-1.5">
-            <Save className="h-4 w-4" />
-            <span className="hidden sm:inline">{saving ? 'Saving...' : 'Save'}</span>
-          </Button>
-          <WorkflowImportExport
-            configName={configName}
-            nodes={nodes}
-            edges={edges}
-            onImport={handleImport}
-          />
-          {isConnected && <CollaboratorAvatars collaborators={collaborators} />}
-          <Button variant="outline" size="sm" onClick={() => setPublishDialogOpen(true)} className="gap-1.5">
-            <Store className="h-4 w-4" />
-            <span className="hidden sm:inline">Publish</span>
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => exportAsPDF({ title: configName, subtitle: configDescription })} 
-            className="gap-1.5"
-            title="Print / Export as PDF"
-          >
-            <Printer className="h-4 w-4" />
-            <span className="hidden sm:inline">Print</span>
-          </Button>
-          {configId && (
-            <>
-              <Button variant="outline" size="sm" onClick={() => setScheduleDialogOpen(true)} className="gap-1.5">
-                <Clock className="h-4 w-4" />
-                <span className="hidden sm:inline">Schedule</span>
-              </Button>
-              <Button variant="destructive" size="sm" onClick={handleDelete} className="gap-1.5">
-                <Trash2 className="h-4 w-4" />
-                <span className="hidden sm:inline">Delete</span>
-              </Button>
-            </>
-          )}
-          <Button size="sm" onClick={runWorkflow} className="gap-1.5">
-            <MessageCircle className="h-4 w-4" />
-            <span className="hidden sm:inline">Test Chat</span>
-          </Button>
-        </div>
+    <div className="flex flex-col h-screen bg-background overflow-hidden">
+      <div className="flex-1 relative">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+        >
+          <Background variant={BackgroundVariant.Dots} />
+          <Controls />
+          <MiniMap />
+        </ReactFlow>
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 h-[calc(100%-5rem)]">
-        {/* Sidebar */}
-        <Card className="lg:col-span-1 overflow-auto">
-          <CardHeader>
-            <CardTitle className="text-lg">Configuration</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Config Name */}
-            <div className="space-y-2">
-              <Label>Name</Label>
-              <Input
-                value={configName}
-                onChange={(e) => setConfigName(e.target.value)}
-                placeholder="Config name..."
-              />
-            </div>
-
-            {/* Add Agent */}
-            <div className="space-y-2">
-              <Label>Add Agent</Label>
-              <Select value={selectedAgentToAdd} onValueChange={setSelectedAgentToAdd}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select agent..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableAgents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
-                      {agent.display_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                onClick={addAgentNode}
-                disabled={!selectedAgentToAdd}
-                className="w-full gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add to Canvas
-              </Button>
-            </div>
-
-            <div className="pt-4 border-t">
-              <p className="text-sm font-medium mb-2">Instructions</p>
-              <ul className="text-xs text-muted-foreground space-y-1">
-                <li>• Click agent to configure I/O</li>
-                <li>• Drag nodes to reposition</li>
-                <li>• Connect by dragging handles</li>
-                <li>• Start/End nodes cannot be deleted</li>
-              </ul>
-            </div>
-
-            <div className="pt-4 border-t">
-              <p className="text-sm font-medium mb-2">Agents in Canvas</p>
-              <div className="space-y-2">
-                {nodes
-                  .filter((n) => n.type === 'agent')
-                  .map((node) => {
-                    const data = node.data as unknown as AgentNodeData;
-                    return (
-                      <div
-                        key={node.id}
-                        className="flex items-center gap-2 p-2 bg-muted rounded-md cursor-pointer hover:bg-muted/80"
-                        onClick={() => setSelectedNodeForConfig(node)}
-                      >
-                        <Bot className="h-4 w-4 text-primary" />
-                        <span className="text-sm flex-1">{data.label}</span>
-                        <Settings2 className="h-3 w-3 text-muted-foreground" />
-                      </div>
-                    );
-                  })}
-                {nodes.filter((n) => n.type === 'agent').length === 0 && (
-                  <p className="text-xs text-muted-foreground">No agents added yet</p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Canvas */}
-        <Card className="lg:col-span-4 overflow-hidden">
-          <div className="h-full w-full">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onConnect={onConnect}
-              onNodeClick={handleNodeClick}
-              nodeTypes={nodeTypes}
-              fitView
-              className="bg-background"
-              defaultEdgeOptions={{
-                animated: true,
-                style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 },
-              }}
-            >
-              <Controls className="!bg-card !border-border !rounded-lg !shadow-lg" />
-              <MiniMap 
-                nodeColor={(node) => {
-                  if (node.type === 'start') return 'hsl(142 76% 36%)';
-                  if (node.type === 'end') return 'hsl(0 84% 60%)';
-                  const data = node.data as unknown as AgentNodeData;
-                  if (data?.model === 'core_analyst') return 'hsl(217 91% 60%)';
-                  if (data?.model === 'core_reviewer') return 'hsl(38 92% 50%)';
-                  if (data?.model === 'core_synthesizer') return 'hsl(280 68% 60%)';
-                  return 'hsl(var(--primary))';
-                }}
-                nodeStrokeColor="hsl(var(--border))"
-                nodeBorderRadius={8}
-                maskColor="hsl(var(--background) / 0.8)"
-                className="!bg-card/90 !backdrop-blur-sm !border !border-border !rounded-xl !shadow-xl"
-                pannable
-                zoomable
-              />
-              <Background
-                variant={BackgroundVariant.Dots}
-                gap={20}
-                size={1}
-                color="hsl(var(--muted-foreground) / 0.2)"
-              />
-            </ReactFlow>
-          </div>
-        </Card>
-      </div>
-
-      {/* Agent Config Sheet */}
-      {selectedNodeForConfig && (
-        <AgentNodeConfig
-          open={!!selectedNodeForConfig}
-          onOpenChange={(open) => !open && setSelectedNodeForConfig(null)}
-          nodeData={selectedNodeForConfig.data as unknown as AgentNodeData}
-          allNodes={agentNodesForConfig}
-          folders={folders}
-          onUpdateNode={handleUpdateNodeConfig}
-        />
-      )}
-
-      {/* Chat Panel */}
-      <AgentChatPanel
-        agents={chatAgents}
-        isOpen={chatOpen}
-        onClose={() => setChatOpen(false)}
-        workflowId={configId}
-        workspaceId={currentWorkspace?.id}
-      />
-
-      {/* Publish to Marketplace Dialog */}
-      <PublishToMarketplaceDialog
-        open={publishDialogOpen}
-        onOpenChange={setPublishDialogOpen}
-        itemType="multi_agent"
-        configData={{
-          agent_nodes: nodes.filter((n) => n.type === 'agent').map((n) => n.data),
-          connections: edges,
-        }}
-        canvasData={{ nodes, edges }}
-        agentCount={nodes.filter((n) => n.type === 'agent').length}
-        defaultName={configName}
-        defaultDescription={configDescription}
-        sourceConfigId={configId}
-      />
-
-      {/* Schedule Dialog */}
-      {configId && currentWorkspace && (
-        <WorkflowScheduleDialog
-          open={scheduleDialogOpen}
-          onOpenChange={setScheduleDialogOpen}
-          workflowId={configId}
-          workflowName={configName}
-          workspaceId={currentWorkspace.id}
-          onSuccess={() => queryClient.invalidateQueries({ queryKey: ['scheduled-jobs'] })}
-        />
-      )}
     </div>
   );
 };
+
+export default MultiAgentCanvas;
