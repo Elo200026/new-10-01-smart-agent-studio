@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 interface CreateWorkflowDialogProps {
   open: boolean;
@@ -22,6 +23,7 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
   onCreated,
 }) => {
   const { toast } = useToast();
+  const { currentWorkspace } = useWorkspace();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -52,6 +54,7 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
         canvas_data: { nodes: [], edges: [] },
         handoff_rules: [],
         created_by: user.id,
+        workspace_id: currentWorkspace?.id || null,
       }).select('id').single();
 
       if (error) throw error;
