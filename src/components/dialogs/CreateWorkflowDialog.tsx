@@ -23,6 +23,7 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
   onCreated,
 }) => {
   const { toast } = useToast();
+  const { currentWorkspace } = useWorkspace();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
