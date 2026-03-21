@@ -122,6 +122,7 @@ export const WorkflowCanvas: React.FC = () => {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={() => queryClient.invalidateQueries({ queryKey: ['workflows'] })}
+        onCreated={(id) => navigate(`/workflow-canvas/${id}`)}
       />
 
       {/* Schedule Dialog */}
