@@ -60,6 +60,7 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
       setFormData({ name: '', description: '', execution_mode: 'sequential' });
       onSuccess();
       onOpenChange(false);
+      if (data?.id && onCreated) onCreated(data.id);
     } catch (error: unknown) {
       toast({
         title: 'Error',

@@ -206,7 +206,7 @@ export const WorkflowEditor: React.FC = () => {
           name: workflowName,
           description: workflowDescription || null,
           execution_mode: executionMode,
-          canvas_data: { nodes, edges },
+          canvas_data: JSON.parse(JSON.stringify({ nodes, edges })),
         })
         .eq('id', id);
 
