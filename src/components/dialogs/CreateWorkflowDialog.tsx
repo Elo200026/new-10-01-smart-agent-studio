@@ -12,6 +12,7 @@ interface CreateWorkflowDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  onCreated?: (id: string) => void;
 }
 
 export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
