@@ -81,21 +81,25 @@ export const WorkflowCanvas: React.FC = () => {
                           variant="ghost" 
                           size="icon" 
                           className="h-8 w-8"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setSelectedWorkflow({ id: workflow.id, name: workflow.name });
                             setScheduleDialogOpen(true);
                           }}
                         >
                           <Clock className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
                           <Play className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(workflow.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(workflow.id);
+                          }}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
