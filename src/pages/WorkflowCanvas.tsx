@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 
 export const WorkflowCanvas: React.FC = () => {
   const { t } = useApp();
+  const navigate = useNavigate();
   const { currentWorkspace } = useWorkspace();
   const { toast } = useToast();
   const queryClient = useQueryClient();
