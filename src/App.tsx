@@ -101,7 +101,7 @@ function AnimatedRoutes() {
                       <Route path="/agents/:id" element={<AnimatedPage><AgentConfiguration /></AnimatedPage>} />
                       <Route path="/agent-test" element={<AnimatedPage><AgentTestChat /></AnimatedPage>} />
                       <Route path="/multi-agent-canvas" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
-                      <Route path="/multi-agent-canvas/:id" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
+                      <Route path="/multi-agent-canvas/:configId" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
                       <Route path="/workflow-builder" element={<AnimatedPage><WorkflowBuilder /></AnimatedPage>} />
                       <Route path="/knowledge-base" element={<AnimatedPage><KnowledgeBase /></AnimatedPage>} />
                       <Route path="/analytics" element={<AnimatedPage><Analytics /></AnimatedPage>} />
