@@ -54,6 +54,7 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
         canvas_data: { nodes: [], edges: [] },
         handoff_rules: [],
         created_by: user.id,
+        workspace_id: currentWorkspace?.id || null,
       }).select('id').single();
 
       if (error) throw error;
