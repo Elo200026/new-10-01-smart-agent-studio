@@ -26,6 +26,7 @@ import { PrivacyPolicy } from "@/pages/PrivacyPolicy";
 import { TermsOfService } from "@/pages/TermsOfService";
 import { Help } from "@/pages/Help";
 import { WorkflowBuilder } from "@/pages/WorkflowBuilder";
+import { WorkflowEditor } from "@/pages/WorkflowEditor";
 import { WorkflowCanvas } from "@/pages/WorkflowCanvas";
 import { AIAssistant } from "@/components/assistant/AIAssistant";
 import { useAuth } from "@/hooks/useAuth";
@@ -105,6 +106,7 @@ function AnimatedRoutes() {
                       <Route path="/multi-agent-canvas/:configId" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
                       <Route path="/workflow-builder" element={<AnimatedPage><WorkflowBuilder /></AnimatedPage>} />
                       <Route path="/workflow-canvas" element={<AnimatedPage><WorkflowCanvas /></AnimatedPage>} />
+                      <Route path="/workflow-canvas/:id" element={<AnimatedPage><WorkflowEditor /></AnimatedPage>} />
                       <Route path="/knowledge-base" element={<AnimatedPage><KnowledgeBase /></AnimatedPage>} />
                       <Route path="/analytics" element={<AnimatedPage><Analytics /></AnimatedPage>} />
                       <Route path="/settings" element={<AnimatedPage><Settings /></AnimatedPage>} />

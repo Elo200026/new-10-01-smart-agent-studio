@@ -16,7 +16,8 @@ import {
   LogOut,
   Moon,
   Sun,
-  Languages
+  Languages,
+  GitBranch
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/contexts/AppContext';
@@ -40,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onMobileClose }) =
     { path: '/agents', label: t.sidebar.agents, icon: Bot, id: 'nav-agents' },
     { path: '/multi-agent-canvas', label: t.sidebar.multiAgentCanvas, icon: Network, id: 'nav-workflows' },
     { path: '/workflow-builder', label: 'AI Workflow Builder', icon: Wand2, id: 'nav-builder' },
+    { path: '/workflow-canvas', label: 'Workflow Canvas', icon: GitBranch, id: 'nav-canvas' },
     { path: '/ai-chat', label: 'AI Assistant', icon: HelpCircle, id: 'nav-chat' },
     { path: '/agent-test', label: 'Agent Test Lab', icon: Sparkles, id: 'nav-test' },
     { path: '/marketplace', label: t.sidebar.marketplace, icon: Store, id: 'nav-marketplace' },

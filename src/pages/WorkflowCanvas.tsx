@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 
 export const WorkflowCanvas: React.FC = () => {
   const { t } = useApp();
+  const navigate = useNavigate();
   const { currentWorkspace } = useWorkspace();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -27,8 +29,16 @@ export const WorkflowCanvas: React.FC = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('multi_agent_configs')
+    queryKey: ['workflows', currentWorkspace?.id],
+    queryFn: async () => {
+      let query = supabase
+        .from('agent_workflows')
         .select('*')
         .order('created_at', { ascending: false });
+      if (currentWorkspace?.id) {
+        query = query.eq('workspace_id', currentWorkspace.id);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
     },
@@ -67,7 +77,7 @@ export const WorkflowCanvas: React.FC = () => {
           ) : workflows && workflows.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {workflows.map((workflow) => (
-                <Card key={workflow.id} className="relative">
+                <Card key={workflow.id} className="relative cursor-pointer hover:border-primary/50 transition-colors" onClick={() => navigate(`/workflow-canvas/${workflow.id}`)}>
                   <CardContent className="pt-6">
                     <div className="flex items-start justify-between">
                       <div>
@@ -81,7 +91,8 @@ export const WorkflowCanvas: React.FC = () => {
                           variant="ghost" 
                           size="icon" 
                           className="h-8 w-8"
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setSelectedWorkflow({ id: workflow.id, name: workflow.name });
                             setScheduleDialogOpen(true);
                           }}
@@ -98,13 +109,17 @@ export const WorkflowCanvas: React.FC = () => {
                           <Layout className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
                           <Play className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(workflow.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(workflow.id);
+                          }}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -131,6 +146,8 @@ export const WorkflowCanvas: React.FC = () => {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={() => queryClient.invalidateQueries({ queryKey: ['multi-agent-configs'] })}
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['workflows'] })}
+        onCreated={(id) => navigate(`/workflow-canvas/${id}`)}
       />
 
       {/* Schedule Dialog */}

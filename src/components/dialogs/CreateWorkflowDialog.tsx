@@ -9,17 +9,20 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 interface CreateWorkflowDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  onCreated?: (id: string) => void;
 }
 
 export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
   open,
   onOpenChange,
   onSuccess,
+  onCreated,
 }) => {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -53,6 +56,7 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
       }
 
       const { data, error } = await supabase.from('multi_agent_configs').insert({
+      const { data, error } = await supabase.from('agent_workflows').insert({
         name: formData.name.trim(),
         description: formData.description || null,
         workspace_id: currentWorkspace.id,
@@ -61,6 +65,8 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
         connections: [],
         created_by: user.id,
       }).select().single();
+        workspace_id: currentWorkspace?.id || null,
+      }).select('id').single();
 
       if (error) throw error;
 
@@ -71,6 +77,7 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
       if (data?.id) {
         navigate(`/multi-agent-canvas/${data.id}`);
       }
+      if (data?.id && onCreated) onCreated(data.id);
     } catch (error: unknown) {
       toast({
         title: 'Error',
