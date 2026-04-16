@@ -5,7 +5,6 @@ import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Plus, GitBranch, Trash2, Play, Clock, Layout } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { CreateWorkflowDialog } from '@/components/dialogs/CreateWorkflowDialog';
@@ -18,17 +17,12 @@ export const WorkflowCanvas: React.FC = () => {
   const navigate = useNavigate();
   const { currentWorkspace } = useWorkspace();
   const { toast } = useToast();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<{ id: string; name: string } | null>(null);
 
-  const { data: workflows, isLoading } = useQuery({
-    queryKey: ['multi-agent-configs'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('multi_agent_configs')
+  const { data: workflows, isLoading: workflowsLoading } = useQuery({
     queryKey: ['workflows', currentWorkspace?.id],
     queryFn: async () => {
       let query = supabase
@@ -44,10 +38,27 @@ export const WorkflowCanvas: React.FC = () => {
     },
   });
 
-  const handleDelete = async (id: string) => {
-    const { error } = await supabase.from('multi_agent_configs').delete().eq('id', id);
+  const { data: multiAgentConfigs, isLoading: configsLoading } = useQuery({
+    queryKey: ['multi-agent-configs', currentWorkspace?.id],
+    queryFn: async () => {
+      if (!currentWorkspace) return [];
+      const { data, error } = await supabase
+        .from('multi_agent_configs')
+        .select('*')
+        .eq('workspace_id', currentWorkspace.id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!currentWorkspace,
+  });
+
+  const handleDelete = async (id: string, table: 'agent_workflows' | 'multi_agent_configs') => {
+    const { error } = await supabase.from(table).delete().eq('id', id);
     if (!error) {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['multi-agent-configs'] });
+      toast({ title: 'Deleted', description: 'Workflow removed successfully' });
     }
   };
 
@@ -64,88 +75,123 @@ export const WorkflowCanvas: React.FC = () => {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <GitBranch className="h-5 w-5" />
-            Workflows
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <p className="text-muted-foreground text-center py-8">{t.common.loading}</p>
-          ) : workflows && workflows.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {workflows.map((workflow) => (
-                <Card key={workflow.id} className="relative cursor-pointer hover:border-primary/50 transition-colors" onClick={() => navigate(`/workflow-canvas/${workflow.id}`)}>
-                  <CardContent className="pt-6">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-semibold">{workflow.name}</h3>
-                        <Badge variant="outline" className="mt-2">
-                          {t.workflowCanvas.title}
-                        </Badge>
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Multi-Agent Workflows Section */}
+        <Card className="cyber-border">
+          <CardHeader className="border-b border-border/50">
+            <CardTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              Multi-Agent Projects
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6">
+            {configsLoading ? (
+              <p className="text-muted-foreground text-center py-8">{t.common.loading}</p>
+            ) : multiAgentConfigs && multiAgentConfigs.length > 0 ? (
+              <div className="space-y-4">
+                {multiAgentConfigs.map((config) => (
+                  <Card 
+                    key={config.id} 
+                    className="relative cursor-pointer hover:border-primary/50 transition-colors group bg-secondary/20" 
+                    onClick={() => navigate(`/multi-agent-canvas/${config.id}`)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold truncate">{config.name}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="secondary" className="text-[10px] h-4">MULTI-AGENT</Badge>
+                            <span className="text-[10px] text-muted-foreground">
+                              {Array.isArray(config.agent_nodes) ? config.agent_nodes.length : 0} Nodes
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(config.id, 'multi_agent_configs');
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex gap-1">
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedWorkflow({ id: workflow.id, name: workflow.name });
-                            setScheduleDialogOpen(true);
-                          }}
-                        >
-                          <Clock className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-8 w-8"
-                          onClick={() => navigate(`/multi-agent-canvas/${workflow.id}`)}
-                          title="Open in Canvas"
-                        >
-                          <Layout className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
-                          <Play className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(workflow.id);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-muted-foreground mb-3">No multi-agent projects found.</p>
+                <Button variant="outline" size="sm" onClick={() => navigate('/workflow-builder')}>
+                  Use AI Builder
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Standard Workflows Section */}
+        <Card>
+          <CardHeader className="border-b border-border/50">
+            <CardTitle className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-primary" />
+              Standard Workflows
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6">
+            {workflowsLoading ? (
+              <p className="text-muted-foreground text-center py-8">{t.common.loading}</p>
+            ) : workflows && workflows.length > 0 ? (
+              <div className="space-y-4">
+                {workflows.map((workflow) => (
+                  <Card 
+                    key={workflow.id} 
+                    className="relative cursor-pointer hover:border-primary/50 transition-colors group" 
+                    onClick={() => navigate(`/workflow-canvas/${workflow.id}`)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold truncate">{workflow.name}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline" className="text-[10px] h-4">SEQUENTIAL</Badge>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(workflow.id, 'agent_workflows');
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                    {workflow.description && (
-                      <p className="text-sm text-muted-foreground mt-3 line-clamp-2">
-                        {workflow.description}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground text-center py-8">
-              No workflows yet. Click "New Workflow" to get started.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-center py-8 text-sm">
+                No standard workflows yet.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <CreateWorkflowDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['multi-agent-configs'] })}
         onSuccess={() => queryClient.invalidateQueries({ queryKey: ['workflows'] })}
         onCreated={(id) => navigate(`/workflow-canvas/${id}`)}
       />

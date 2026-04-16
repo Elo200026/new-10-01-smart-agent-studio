@@ -9,7 +9,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { useWorkspace } from '@/contexts/WorkspaceContext';
 
 interface CreateWorkflowDialogProps {
   open: boolean;
@@ -55,17 +54,11 @@ export const CreateWorkflowDialog: React.FC<CreateWorkflowDialogProps> = ({
         return;
       }
 
-      const { data, error } = await supabase.from('multi_agent_configs').insert({
       const { data, error } = await supabase.from('agent_workflows').insert({
         name: formData.name.trim(),
         description: formData.description || null,
         workspace_id: currentWorkspace.id,
-        canvas_data: { nodes: [], edges: [] },
-        agent_nodes: [],
-        connections: [],
         created_by: user.id,
-      }).select().single();
-        workspace_id: currentWorkspace?.id || null,
       }).select('id').single();
 
       if (error) throw error;

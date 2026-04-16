@@ -214,9 +214,9 @@ const Index = () => {
       {/* Hero Section */}
       <section ref={heroRef} className="relative min-h-screen flex items-center justify-center py-20">
         {/* 3D Background Scene */}
-        <Suspense fallback={null}>
+        {/* <Suspense fallback={null}>
           <Hero3DScene />
-        </Suspense>
+        </Suspense> */}
         
         {/* Background Effects */}
         <div ref={orbsRef} className="absolute inset-0 overflow-hidden pointer-events-none">

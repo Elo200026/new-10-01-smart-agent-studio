@@ -86,49 +86,45 @@ function AnimatedRoutes() {
   const location = useLocation();
   
   return (
-    <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<AnimatedPage><Index /></AnimatedPage>} />
-        <Route path="/auth" element={<AnimatedPage><Auth /></AnimatedPage>} />
-        <Route
-          path="/*"
-          element={
-            <ProtectedRoute>
-              <WorkspaceProvider>
-                <MainLayout>
-                  <AnimatePresence mode="wait">
-                    <Routes location={location} key={location.pathname}>
-                      <Route path="/dashboard" element={<AnimatedPage><Dashboard /></AnimatedPage>} />
-                      <Route path="/agents" element={<AnimatedPage><Agents /></AnimatedPage>} />
-                      <Route path="/agents/:id" element={<AnimatedPage><AgentConfiguration /></AnimatedPage>} />
-                      <Route path="/agent-test" element={<AnimatedPage><AgentTestChat /></AnimatedPage>} />
-                      <Route path="/multi-agent-canvas" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
-                      <Route path="/multi-agent-canvas/:configId" element={<AnimatedPage><MultiAgentCanvas /></AnimatedPage>} />
-                      <Route path="/workflow-builder" element={<AnimatedPage><WorkflowBuilder /></AnimatedPage>} />
-                      <Route path="/workflow-canvas" element={<AnimatedPage><WorkflowCanvas /></AnimatedPage>} />
-                      <Route path="/workflow-canvas/:id" element={<AnimatedPage><WorkflowEditor /></AnimatedPage>} />
-                      <Route path="/knowledge-base" element={<AnimatedPage><KnowledgeBase /></AnimatedPage>} />
-                      <Route path="/analytics" element={<AnimatedPage><Analytics /></AnimatedPage>} />
-                      <Route path="/settings" element={<AnimatedPage><Settings /></AnimatedPage>} />
-                      <Route path="/ai-chat" element={<AnimatedPage><AIChat /></AnimatedPage>} />
-                      <Route path="/workflow-runs" element={<AnimatedPage><WorkflowRuns /></AnimatedPage>} />
-                      <Route path="/workflow-monitor/:runId" element={<AnimatedPage><WorkflowMonitor /></AnimatedPage>} />
-                      <Route path="/marketplace" element={<AnimatedPage><Marketplace /></AnimatedPage>} />
-                      <Route path="/team" element={<AnimatedPage><Team /></AnimatedPage>} />
-                      <Route path="/privacy" element={<AnimatedPage><PrivacyPolicy /></AnimatedPage>} />
-                      <Route path="/terms" element={<AnimatedPage><TermsOfService /></AnimatedPage>} />
-                      <Route path="/help" element={<AnimatedPage><Help /></AnimatedPage>} />
-                      <Route path="*" element={<AnimatedPage><NotFound /></AnimatedPage>} />
-                    </Routes>
-                  </AnimatePresence>
-                </MainLayout>
-                <AIAssistant />
-              </WorkspaceProvider>
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-    </AnimatePresence>
+    <Routes location={location} key={location.pathname}>
+      <Route path="/" element={<Index />} />
+      <Route path="/auth" element={<Auth />} />
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <WorkspaceProvider>
+              <MainLayout>
+                <Routes location={location} key={location.pathname}>
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/agents" element={<Agents />} />
+                  <Route path="/agents/:id" element={<AgentConfiguration />} />
+                  <Route path="/agent-test" element={<AgentTestChat />} />
+                  <Route path="/multi-agent-canvas" element={<MultiAgentCanvas />} />
+                  <Route path="/multi-agent-canvas/:configId" element={<MultiAgentCanvas />} />
+                  <Route path="/workflow-builder" element={<WorkflowBuilder />} />
+                  <Route path="/workflow-canvas" element={<WorkflowCanvas />} />
+                  <Route path="/workflow-canvas/:id" element={<WorkflowEditor />} />
+                  <Route path="/knowledge-base" element={<KnowledgeBase />} />
+                  <Route path="/analytics" element={<Analytics />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/ai-chat" element={<AIChat />} />
+                  <Route path="/workflow-runs" element={<WorkflowRuns />} />
+                  <Route path="/workflow-monitor/:runId" element={<WorkflowMonitor />} />
+                  <Route path="/marketplace" element={<Marketplace />} />
+                  <Route path="/team" element={<Team />} />
+                  <Route path="/privacy" element={<PrivacyPolicy />} />
+                  <Route path="/terms" element={<TermsOfService />} />
+                  <Route path="/help" element={<Help />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </MainLayout>
+              <AIAssistant />
+            </WorkspaceProvider>
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
   );
 }
 

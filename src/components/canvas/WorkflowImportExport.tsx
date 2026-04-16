@@ -47,9 +47,9 @@ export const WorkflowImportExport: React.FC<WorkflowImportExportProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importDialogOpen, setImportDialogOpen] = React.useState(false);
   const [importPreview, setImportPreview] = React.useState<WorkflowImportData | null>(null);
-  const [importError, setImportError] = React.useState<string | null>(null);
+  const [isExporting, setIsExporting] = React.useState(false);
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const agentNodes = nodes.filter((n) => n.type === 'agent');
     if (agentNodes.length === 0) {
       toast({
@@ -60,31 +60,107 @@ export const WorkflowImportExport: React.FC<WorkflowImportExportProps> = ({
       return;
     }
 
-    const exportData = {
-      version: '1.0',
-      name: configName,
-      exportedAt: new Date().toISOString(),
-      nodes,
-      edges,
-      agents: agentNodes.map((n) => n.data),
-    };
+    setIsExporting(true);
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${configName.replace(/\s+/g, '_')}_workflow.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      // Dynamic import to avoid crash if user hasn't installed them yet
+      const JSZip = (await import('jszip')).default;
+      const { saveAs } = await import('file-saver');
 
-    toast({
-      title: 'Workflow Exported',
-      description: 'Your workflow configuration has been saved as a JSON file.',
-    });
+      const exportData = {
+        version: '1.0',
+        name: configName,
+        exportedAt: new Date().toISOString(),
+        nodes,
+        edges,
+        agents: agentNodes.map((n) => n.data),
+      };
+
+      const jsonString = JSON.stringify(exportData, null, 2);
+
+      const packageJson = {
+        name: configName.toLowerCase().replace(/\s+/g, '-'),
+        version: "1.0.0",
+        description: "Standalone AI Agent Workflow App",
+        main: "index.js",
+        type: "module",
+        scripts: {
+          start: "node index.js"
+        },
+        dependencies: {
+          "dotenv": "^16.4.5"
+        }
+      };
+
+      const readmeMd = [
+        "# " + configName + " - AI Agent Workflow",
+        "",
+        "## Setup & Run",
+        "1. Install dependencies:",
+        "   `npm install`",
+        "2. (Optional) Create a `.env` file if needed for your custom logic.",
+        "3. Start the workflow engine:",
+        "   `npm start`",
+        ""
+      ].join('\n');
+
+      const indexJsTemplate = [
+        "import fs from 'fs';",
+        "import path from 'path';",
+        "import { fileURLToPath } from 'url';",
+        "",
+        "const __filename = fileURLToPath(import.meta.url);",
+        "const __dirname = path.dirname(__filename);",
+        "",
+        "console.log('🚀 Starting AI Workflow Engine...');",
+        "",
+        "try {",
+        "  const configRaw = fs.readFileSync(path.join(__dirname, 'workflow.json'), 'utf8');",
+        "  const workflowConfig = JSON.parse(configRaw);",
+        "  ",
+        "  console.log('✅ Loaded Workflow: ' + workflowConfig.name);",
+        "  console.log('📦 Number of Agents: ' + workflowConfig.agents.length);",
+        "  console.log('--------------------------------------------------');",
+        "",
+        "  workflowConfig.agents.forEach((agent, index) => {",
+        "    console.log('🤖 Initializing Agent [' + (agent.name || 'Agent ' + (index+1)) + ']: ' + (agent.role || 'Unspecified Role'));",
+        "  });",
+        "",
+        "  console.log('--------------------------------------------------');",
+        "  console.log('🔔 Workflow is ready. Add your LLM execution logic here.');",
+        "  ",
+        "} catch (error) {",
+        "  console.error('❌ Error running workflow:', error.message);",
+        "}"
+      ].join('\n');
+
+      const zip = new JSZip();
+      const appRoot = zip.folder(configName.replace(/\s+/g, '_') || "ai-workflow-app");
+      
+      if (appRoot) {
+        appRoot.file("workflow.json", jsonString);
+        appRoot.file("package.json", JSON.stringify(packageJson, null, 2));
+        appRoot.file("README.md", readmeMd);
+        appRoot.file("index.js", indexJsTemplate);
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, configName.replace(/\s+/g, '_') + '_App.zip');
+
+      toast({
+        title: 'App Exported Successfully',
+        description: 'Your workflow app has been saved as a ZIP file.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Export Failed',
+        description: 'Failed to export app. Please ensure jszip and file-saver are installed.',
+        variant: 'destructive',
+      });
+      console.error(err);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
